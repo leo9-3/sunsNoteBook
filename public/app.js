@@ -72,10 +72,16 @@ function focusBody(el){ setTimeout(()=>{ const b=document.querySelector(`[data-i
 
 function nodeFor(el){
   const div=document.createElement('div'); div.className='el '+el.type+(el.id===window._sel?' selected':''); div.dataset.id=el.id;
-  div.style.left=el.x+'px'; div.style.top=el.y+'px'; div.style.width=el.w+'px'; if(el.h) div.style.height=el.h+'px';
+  // text/heading blocks hug their content (v0.2.2): the box is only as wide as the
+  // longest line, so clicking beside the text hits the canvas and starts a new block;
+  // only clicking the text itself edits it. Other block types keep their fixed size.
+  const autoFit=el.type==='text'||el.type==='heading';
+  div.style.left=el.x+'px'; div.style.top=el.y+'px';
+  if(autoFit){ div.style.width='max-content'; div.style.maxWidth='900px'; }
+  else{ div.style.width=el.w+'px'; if(el.h) div.style.height=el.h+'px'; }
   const label=el.type==='image'?'图片':el.type==='todo'?'待办':el.type==='sticky'?'便签':'文字';
   div.innerHTML=`<div class="grip"><span>⠿ ${label}</span><button title="删除">✕</button></div>`+
-    (el.type==='image'?`<img draggable="false" alt=""/>`:`<div class="body" contenteditable="true" data-placeholder="在这里输入…"></div>`)+`<div class="resize">◢</div>`;
+    (el.type==='image'?`<img draggable="false" alt=""/>`:`<div class="body" contenteditable="true" data-placeholder="在这里输入…"></div>`)+(autoFit?'':`<div class="resize">◢</div>`);
   if(el.type==='image'){ div.querySelector('img').src=el.src; }
   else{
     const b=div.querySelector('.body'); b.textContent=el.text||'';
@@ -89,7 +95,7 @@ function nodeFor(el){
   div.querySelector('.grip').onmousedown=e=>startMove(e,el,div);
   // images: drag the image itself to move it (native HTML drag is disabled, so no copy/ghost)
   if(el.type==='image'){ div.querySelector('img').onmousedown=e=>startMove(e,el,div); }
-  div.querySelector('.resize').onmousedown=e=>{ e.preventDefault(); e.stopPropagation(); const sx=e.clientX,sy=e.clientY,ow=el.w,oh=el.h||div.offsetHeight;
+  const rz=div.querySelector('.resize'); if(rz) rz.onmousedown=e=>{ e.preventDefault(); e.stopPropagation(); const sx=e.clientX,sy=e.clientY,ow=el.w,oh=el.h||div.offsetHeight;
     const mv=ev=>{ el.w=Math.max(60,ow+(ev.clientX-sx)/zoom); el.h=Math.max(36,oh+(ev.clientY-sy)/zoom); div.style.width=el.w+'px'; div.style.height=el.h+'px'; };
     const up=()=>{ removeEventListener('mousemove',mv); removeEventListener('mouseup',up); scheduleSave(); };
     addEventListener('mousemove',mv); addEventListener('mouseup',up); };

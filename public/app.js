@@ -19,17 +19,21 @@ async function loadNote(d, opts={}){
   if(opts.create&&fresh){
     // explicit "new note" click: persist at once so the tree shows the new entry,
     // and put the cursor in the title box — without this the button looked dead
-    await save(); markSaved('已新建 '+d+'，在顶部标题栏给它起个名');
+    await save(); markSaved('已新建 '+d+'（默认名：'+note.title+'，可在顶部改名）');
     $('#title').focus(); $('#title').select();
   } else if(opts.create&&wasOpen){
     markSaved(d+' 的纪要已经在打开状态');
     $('#title').focus(); $('#title').select();
   } else markSaved('已打开 '+d);
 }
+const defaultTitle=d=>{ const dt=new Date(d+'T00:00:00'); return dt.getDate()+'日 星期'+'日一二三四五六'[dt.getDay()]; };
 async function save(){
   markSaved('保存中…'); note.title=$('#title').value; note.date=date;
+  // every new note gets a default name like "17日 星期二" (kalo's rule); a name the
+  // user typed always wins, and clearing a name back to blank restores the default
+  if(!(note.title||'').trim()){ note.title=defaultTitle(date); if(document.activeElement!==$('#title')) $('#title').value=note.title; }
   // never persist empty text blocks (e.g. a stray click that was never typed into)
-  note.elements=note.elements.filter(el=>el.type==='image'||(el.text||'').trim()!==''||el.id===window._sel);
+  note.elements=note.elements.filter(el=>el.type==='image'||el.type==='table'||(el.text||'').trim()!==''||el.id===window._sel);
   try{ if(!useServer) throw 0; await api('/api/notes/'+date,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(note)}); }
   catch{ localStorage.setItem('notebook:'+date,JSON.stringify(note)); }
   markSaved('已保存 '+new Date().toLocaleTimeString()); refreshList();
@@ -99,6 +103,32 @@ function renderBody(b, el){
     b.appendChild(d);
   });
 }
+// ---- simple tables (v0.2.7): el.rows is a 2D array of plain-text cells --------
+function readTable(tbl){ return [...tbl.rows].map(tr=>[...tr.cells].map(td=>((td.innerText||'').replace(/\r\n?/g,'\n').replace(/\n+$/,'')))); }
+function buildTable(div, el){
+  const tbl=div.querySelector('table.tbl'); if(!tbl) return;
+  if(!Array.isArray(el.rows)||!el.rows.length) el.rows=[['','',''],['','',''],['','','']];
+  tbl.innerHTML='';
+  el.rows.forEach(row=>{
+    const tr=document.createElement('tr');
+    row.forEach(cell=>{
+      const td=document.createElement('td');
+      td.contentEditable='true'; td.textContent=cell||'';
+      td.oninput=()=>{ el.rows=readTable(tbl); scheduleSave(); };
+      tr.appendChild(td);
+    });
+    tbl.appendChild(tr);
+  });
+}
+function tableOp(el, div, op){
+  const tbl=div.querySelector('table.tbl'); el.rows=readTable(tbl);
+  const cols=el.rows[0]?el.rows[0].length:0;
+  if(op==='addr') el.rows.push(Array(cols).fill(''));
+  else if(op==='delr'){ if(el.rows.length>1) el.rows.pop(); }
+  else if(op==='addc') el.rows.forEach(r=>r.push(''));
+  else if(op==='delc'){ if(cols>1) el.rows.forEach(r=>r.pop()); }
+  buildTable(div, el); scheduleSave();
+}
 function readRich(b, el){
   const lines=[], marks={}, fonts={};
   const push=(txt,node)=>{
@@ -137,10 +167,16 @@ function nodeFor(el){
   div.style.left=el.x+'px'; div.style.top=el.y+'px';
   if(autoFit){ div.style.width='max-content'; div.style.maxWidth='900px'; }
   else{ div.style.width=el.w+'px'; if(el.h) div.style.height=el.h+'px'; }
-  const label=el.type==='image'?'图片':el.type==='todo'?'待办':el.type==='sticky'?'便签':'文字';
-  div.innerHTML=`<div class="grip"><span>⠿ ${label}</span><button title="删除">✕</button></div>`+
-    (el.type==='image'?`<img draggable="false" alt=""/>`:`<div class="body" contenteditable="true" data-placeholder="在这里输入…"></div>`)+(autoFit?'':`<div class="resize">◢</div>`);
+  const label=el.type==='image'?'图片':el.type==='todo'?'待办':el.type==='sticky'?'便签':el.type==='table'?'表格':'文字';
+  div.innerHTML=`<div class="grip"><span>⠿ ${label}</span>`+
+    (el.type==='table'?`<span class="tops"><button data-op="addr">＋行</button><button data-op="delr">－行</button><button data-op="addc">＋列</button><button data-op="delc">－列</button></span>`:'')+
+    `<button class="del" title="删除">✕</button></div>`+
+    (el.type==='image'?`<img draggable="false" alt=""/>`:el.type==='table'?`<div class="tblWrap"><table class="tbl"></table></div>`:`<div class="body" contenteditable="true" data-placeholder="在这里输入…"></div>`)+(autoFit?'':`<div class="resize">◢</div>`);
   if(el.type==='image'){ div.querySelector('img').src=el.src; }
+  else if(el.type==='table'){
+    buildTable(div, el);
+    div.querySelectorAll('[data-op]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); tableOp(el, div, b.dataset.op); });
+  }
   else{
     const b=div.querySelector('.body'); renderBody(b, el);
     // read via readRich (innerText-based), never textContent: line breaks inside a
@@ -152,7 +188,7 @@ function nodeFor(el){
     // an empty text block that loses focus disappears again (OneNote behaviour)
     b.onblur=()=>{ setTimeout(()=>{ if(el.type!=='todo' && el.type!=='sticky' && (el.text||'').trim()===''){ note.elements=note.elements.filter(x=>x.id!==el.id); render(); scheduleSave(); } },150); };
   }
-  div.querySelector('.grip button').onclick=()=>{ note.elements=note.elements.filter(x=>x.id!==el.id); render(); scheduleSave(); };
+  div.querySelector('.grip .del').onclick=()=>{ note.elements=note.elements.filter(x=>x.id!==el.id); render(); scheduleSave(); };
   div.querySelector('.grip').onmousedown=e=>startMove(e,el,div);
   // images: drag the image itself to move it (native HTML drag is disabled, so no copy/ghost)
   if(el.type==='image'){ div.querySelector('img').onmousedown=e=>startMove(e,el,div); }
@@ -165,10 +201,10 @@ function nodeFor(el){
 }
 function select(id){ window._sel=id; document.querySelectorAll('.el').forEach(n=>n.classList.toggle('selected',n.dataset.id===id)); }
 function canvasPos(clientX,clientY){ const r=$('#viewport').getBoundingClientRect(); return {x:(clientX-r.left-pan.x)/zoom, y:(clientY-r.top-pan.y)/zoom}; }
-function addEl(type,x,y,extra={}){ const el={id:uid(),type,x:Math.round(x),y:Math.round(y),w:type==='image'?320:280,h:type==='image'?220:null,text:type==='todo'?'☐ 待办事项\n☐ 跟进人 / 截止日期':type==='sticky'?'便签':type==='heading'?'标题':'',...extra}; note.elements.push(el); render(); scheduleSave(); return el; }
+function addEl(type,x,y,extra={}){ const el={id:uid(),type,x:Math.round(x),y:Math.round(y),w:type==='image'?320:type==='table'?440:280,h:type==='image'?220:null,text:type==='todo'?'☐ 待办事项\n☐ 跟进人 / 截止日期':type==='sticky'?'便签':type==='heading'?'标题':'',...extra}; if(type==='table'&&!el.rows) el.rows=[['','',''],['','',''],['','','']]; note.elements.push(el); render(); scheduleSave(); return el; }
 function typeAt(p){ const el=addEl('text',p.x,p.y); select(el.id); focusBody(el); return el; }
 
-document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{ const el=addEl(b.dataset.add, 80+Math.random()*120 - pan.x/zoom, 80+Math.random()*80 - pan.y/zoom); select(el.id); if(el.type!=='image') focusBody(el); });
+document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{ const el=addEl(b.dataset.add, 80+Math.random()*120 - pan.x/zoom, 80+Math.random()*80 - pan.y/zoom); select(el.id); if(el.type==='table'){ const td=document.querySelector(`[data-id="${el.id}"] td`); if(td) td.focus(); } else if(el.type!=='image') focusBody(el); });
 $('#imgInput').onchange=e=>{ [...e.target.files].forEach((f,i)=>{ const r=new FileReader(); r.onload=()=>addEl('image',120+i*30,120+i*30,{src:r.result}); r.readAsDataURL(f); }); e.target.value=''; };
 addEventListener('paste',e=>{ const item=[...(e.clipboardData||[]).items||[]].find(i=>i.type.startsWith('image/')); if(item){ const r=new FileReader(); r.onload=()=>addEl('image',140,140,{src:r.result}); r.readAsDataURL(item.getAsFile()); }});
 // Ctrl+S / Cmd+S saves the note itself — never the browser's "save webpage" dialog
@@ -301,8 +337,33 @@ $('#viewport').addEventListener('drop',e=>{
   const p=canvasPos(e.clientX,e.clientY);
   files.forEach((f,i)=>{ const r=new FileReader(); r.onload=()=>addEl('image',p.x+i*24,p.y+i*24,{src:r.result}); r.readAsDataURL(f); });
 });
+// right-click on blank areas (canvas or the sidebar's empty space) pops a small
+// date picker to create/open a note for any day (v0.2.7)
+const ctxNew=$('#ctxNew');
+function showCtxNew(x,y){
+  $('#ctxDate').value=today();
+  ctxNew.hidden=false;
+  ctxNew.style.left=Math.min(x,innerWidth-262)+'px';
+  ctxNew.style.top=Math.min(y,innerHeight-170)+'px';
+  setTimeout(()=>$('#ctxDate').focus(),0);
+}
+function hideCtxNew(){ ctxNew.hidden=true; }
+$('#viewport').addEventListener('contextmenu',e=>{
+  if(e.target.id!=='viewport'&&e.target.id!=='canvas') return; // blank canvas only
+  e.preventDefault(); showCtxNew(e.clientX,e.clientY);
+});
+document.querySelector('aside').addEventListener('contextmenu',e=>{
+  if(e.target.closest('button,input,select,textarea,.noteItem,.treeRow')) return;
+  e.preventDefault(); showCtxNew(e.clientX,e.clientY);
+});
+$('#ctxGo').onclick=()=>{ const v=$('#ctxDate').value; hideCtxNew(); if(v) loadNote(v,{create:true}); };
+$('#ctxCancel').onclick=hideCtxNew;
+$('#ctxDate').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#ctxGo').click(); } });
+document.addEventListener('mousedown',e=>{ if(!ctxNew.hidden&&!e.target.closest('#ctxNew')) hideCtxNew(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') hideCtxNew(); });
 // empty canvas: drag = pan, click without moving = type right there (OneNote behaviour)
 $('#viewport').addEventListener('mousedown',e=>{
+  if(e.button!==0) return; // left button only — a right click opens the new-note popup, never a text block
   if(e.target.id!=='viewport'&&e.target.id!=='canvas') return;
   const sx=e.clientX, sy=e.clientY, ox=pan.x, oy=pan.y; let moved=false;
   const mv=ev=>{ if(Math.abs(ev.clientX-sx)+Math.abs(ev.clientY-sy)>4) moved=true; if(moved){ pan.x=ox+ev.clientX-sx; pan.y=oy+ev.clientY-sy; applyTransform(); } };

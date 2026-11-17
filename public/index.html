@@ -28,6 +28,7 @@
       <button data-add="heading">＋ 标题块</button>
       <button data-add="sticky">＋ 便签</button>
       <button data-add="todo">＋ 待办</button>
+      <button data-add="table">＋ 表格</button>
       <label class="fileBtn">＋ 图片<input type="file" id="imgInput" accept="image/*" multiple hidden/></label>
       <span class="sep"></span>
       <button id="zoomOut">－</button><span id="zoomLabel">100%</span><button id="zoomIn">＋</button>
@@ -56,6 +57,11 @@
     </div>
     <div id="viewport"><div id="canvas"></div></div>
   </main>
+</div>
+<div id="ctxNew" class="ctxNew" hidden>
+  <div class="ctxTitle">新建 / 打开哪天的纪要？</div>
+  <input type="date" id="ctxDate"/>
+  <div class="ctxBtns"><button id="ctxGo" class="primary">打开</button><button id="ctxCancel">取消</button></div>
 </div>
 <script src="/app.js"></script>
 </body>

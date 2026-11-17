@@ -33,7 +33,7 @@ function expandFor(d){ if(!d) return; const p=String(d).split('-'); if(p.length<
 async function refreshList(){
   let list=[];
   try{ list=await api('/api/notes'); }catch{ list=Object.keys(localStorage).filter(k=>k.startsWith('notebook:')).map(k=>{const n=JSON.parse(localStorage.getItem(k));return{date:n.date,title:n.title,count:(n.elements||[]).length}}); }
-  list.sort((a,b)=>String(b.date).localeCompare(String(a.date))); // newest first; tree groups inherit this order
+  list.sort((a,b)=>String(a.date).localeCompare(String(b.date))); // chronological: oldest first, newest last — tree groups inherit this order
   const q=($('#search').value||'').toLowerCase();
   const filtered=list.filter(n=>!q||n.date.includes(q)||(n.title||'').toLowerCase().includes(q));
   const box=$('#noteList');
@@ -110,6 +110,10 @@ function typeAt(p){ const el=addEl('text',p.x,p.y); select(el.id); focusBody(el)
 document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{ const el=addEl(b.dataset.add, 80+Math.random()*120 - pan.x/zoom, 80+Math.random()*80 - pan.y/zoom); select(el.id); if(el.type!=='image') focusBody(el); });
 $('#imgInput').onchange=e=>{ [...e.target.files].forEach((f,i)=>{ const r=new FileReader(); r.onload=()=>addEl('image',120+i*30,120+i*30,{src:r.result}); r.readAsDataURL(f); }); e.target.value=''; };
 addEventListener('paste',e=>{ const item=[...(e.clipboardData||[]).items||[]].find(i=>i.type.startsWith('image/')); if(item){ const r=new FileReader(); r.onload=()=>addEl('image',140,140,{src:r.result}); r.readAsDataURL(item.getAsFile()); }});
+// Ctrl+S / Cmd+S saves the note itself — never the browser's "save webpage" dialog
+addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey&&e.key.toLowerCase()==='s'){ e.preventDefault(); clearTimeout(saveTimer); save(); }
+});
 // kill the browser's native drag for anything on the canvas: dragging an image must move it, never copy it
 document.addEventListener('dragstart',e=>{ if(e.target.closest && e.target.closest('#canvas')) e.preventDefault(); });
 $('#viewport').addEventListener('dragover',e=>e.preventDefault());

@@ -5,7 +5,7 @@
 // imported automatically on first start (files are moved to data/legacy-json/).
 // If node:sqlite is unavailable (Node < 22.5), it falls back to the JSON files.
 // API:
-//   GET    /api/notes              -> [{date, title, updatedAt, count}] (date DESC)
+//   GET    /api/notes              -> [{date, title, updatedAt, count}] (date ASC, chronological)
 //   GET    /api/notes/:date       -> note or a blank template for that date
 //   PUT    /api/notes/:date       -> save note {title, elements:[...]}
 //   DELETE /api/notes/:date       -> delete
@@ -23,7 +23,7 @@ fs.mkdirSync(DATA, { recursive: true });
 const MIME = { '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.json':'application/json; charset=utf-8', '.png':'image/png', '.jpg':'image/jpeg', '.svg':'image/svg+xml' };
 const isDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s);
 const fileFor = d => path.join(DATA, d + '.json');
-const byDateDesc = (a,b)=> b.date.localeCompare(a.date);
+const byDateAsc = (a,b)=> a.date.localeCompare(b.date);
 
 // ---------- storage ----------
 let db = null;
@@ -65,10 +65,10 @@ function migrateLegacyJson(){
 }
 const store = {
   list(){
-    if (db) return db.prepare('SELECT date, title, updated_at AS updatedAt, element_count AS count FROM notes ORDER BY date DESC').all();
+    if (db) return db.prepare('SELECT date, title, updated_at AS updatedAt, element_count AS count FROM notes ORDER BY date ASC').all();
     return fs.readdirSync(DATA).filter(f=>f.endsWith('.json')).map(f=>{
       try{ const n=JSON.parse(fs.readFileSync(path.join(DATA,f),'utf8')); return {date:n.date, title:n.title||'', updatedAt:n.updatedAt||null, count:(n.elements||[]).length}; }catch{ return null; }
-    }).filter(Boolean).sort(byDateDesc);
+    }).filter(Boolean).sort(byDateAsc);
   },
   get(date){
     if (db) { const r = db.prepare('SELECT date,title,elements,updated_at AS updatedAt FROM notes WHERE date=?').get(date);

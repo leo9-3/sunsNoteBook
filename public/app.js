@@ -67,6 +67,7 @@ function startMove(e, el, div){
   const up=()=>{ removeEventListener('mousemove',mv); removeEventListener('mouseup',up); scheduleSave(); };
   addEventListener('mousemove',mv); addEventListener('mouseup',up);
 }
+function readBody(b){ const t=(b.innerText!==undefined?b.innerText:b.textContent)||''; return t.replace(/\r\n?/g,'\n').replace(/\n+$/,''); }
 function focusBody(el){ setTimeout(()=>{ const b=document.querySelector(`[data-id="${el.id}"] .body`); if(!b) return; b.focus();
   const r=document.createRange(); r.selectNodeContents(b); r.collapse(false); const s=getSelection(); s.removeAllRanges(); s.addRange(r); },0); }
 
@@ -85,7 +86,10 @@ function nodeFor(el){
   if(el.type==='image'){ div.querySelector('img').src=el.src; }
   else{
     const b=div.querySelector('.body'); b.textContent=el.text||'';
-    b.oninput=()=>{ el.text=b.textContent; scheduleSave(); };
+    // read with innerText, never textContent: line breaks inside a contenteditable
+    // live in its <div>/<br> structure, and textContent glues lines together with
+    // no separator — that is what merged multi-line notes into one blob (v0.2.4 fix)
+    b.oninput=()=>{ el.text=readBody(b); scheduleSave(); };
     // clicking into text edits it — it must NOT start a move/pan
     b.onmousedown=e=>e.stopPropagation();
     // an empty text block that loses focus disappears again (OneNote behaviour)

@@ -8,12 +8,23 @@ let date=today(), note={date,title:'',elements:[]}, zoom=1, pan={x:20,y:20}, sav
 const uid=()=>Math.random().toString(36).slice(2,10);
 
 async function api(path,opts){ const r=await fetch(path,opts); if(!r.ok) throw new Error(r.status); return r.json(); }
-async function loadNote(d){
+async function loadNote(d, opts={}){
+  const wasOpen=(date===d);
   date=d; expandFor(d);
-  try{ note=await api('/api/notes/'+d); }
-  catch{ useServer=false; note=JSON.parse(localStorage.getItem('notebook:'+d)||JSON.stringify({date:d,title:'',elements:[]})); }
+  let fresh=false;
+  try{ note=await api('/api/notes/'+d); fresh=!note.updatedAt; }
+  catch{ useServer=false; const raw=localStorage.getItem('notebook:'+d); fresh=!raw; note=JSON.parse(raw||JSON.stringify({date:d,title:'',elements:[]})); }
   if(!note.elements) note.elements=[];
-  $('#title').value=note.title||''; render(); refreshList(); markSaved('已打开 '+d);
+  $('#title').value=note.title||''; render(); refreshList();
+  if(opts.create&&fresh){
+    // explicit "new note" click: persist at once so the tree shows the new entry,
+    // and put the cursor in the title box — without this the button looked dead
+    await save(); markSaved('已新建 '+d+'，在顶部标题栏给它起个名');
+    $('#title').focus(); $('#title').select();
+  } else if(opts.create&&wasOpen){
+    markSaved(d+' 的纪要已经在打开状态');
+    $('#title').focus(); $('#title').select();
+  } else markSaved('已打开 '+d);
 }
 async function save(){
   markSaved('保存中…'); note.title=$('#title').value; note.date=date;
@@ -49,12 +60,16 @@ async function refreshList(){
     if(yOpen) for(const [m,days] of months){
       const key=y+'-'+m, mOpen=!!q||expandedKeys.has(key);
       html+=`<div class="treeRow treeMonth" data-k="${key}"><span class="tw">${mOpen?'▾':'▸'}</span>${Number(m)}月<span class="cnt">${days.length} 篇</span></div>`;
-      if(mOpen) html+='<div class="treeDays">'+days.map(n=>{ const wd='日一二三四五六'[new Date(n.date+'T00:00:00').getDay()]; return `<div class="noteItem treeDay ${n.date===date?'active':''}" data-d="${n.date}"><b>${Number(n.date.slice(8))}日</b><small>周${wd}</small><span class="tt">${n.title||'<i>未命名纪要</i>'}</span></div>`; }).join('')+'</div>';
+      if(mOpen) html+='<div class="treeDays">'+days.map(n=>{ const wd='日一二三四五六'[new Date(n.date+'T00:00:00').getDay()]; return `<div class="noteItem treeDay ${n.date===date?'active':''}" data-d="${n.date}" title="单击打开 · 双击改名"><b>${Number(n.date.slice(8))}日</b><small>周${wd}</small><span class="tt">${n.title||'<i>未命名纪要</i>'}</span><span class="tdel" data-del="${n.date}" title="删除这篇纪要">✕</span></div>`; }).join('')+'</div>';
     }
   }
   box.innerHTML=html;
   box.querySelectorAll('.treeRow').forEach(r=>r.onclick=()=>{ const k=r.dataset.k; expandedKeys.has(k)?expandedKeys.delete(k):expandedKeys.add(k); refreshList(); });
-  box.querySelectorAll('.noteItem').forEach(el=>el.onclick=()=>loadNote(el.dataset.d));
+  box.querySelectorAll('.noteItem').forEach(el=>{
+    el.onclick=()=>loadNote(el.dataset.d);
+    el.ondblclick=()=>{ $('#title').focus(); $('#title').select(); };
+  });
+  box.querySelectorAll('[data-del]').forEach(x=>x.onclick=e=>{ e.stopPropagation(); deleteNote(x.dataset.del); });
 }
 
 function applyTransform(){ $('#canvas').style.transform=`translate(${pan.x}px,${pan.y}px) scale(${zoom})`; $('#zoomLabel').textContent=Math.round(zoom*100)+'%'; }
@@ -297,9 +312,23 @@ $('#viewport').addEventListener('mousedown',e=>{
 });
 $('#zoomIn').onclick=()=>{zoom=Math.min(2,zoom*1.15);applyTransform()}; $('#zoomOut').onclick=()=>{zoom=Math.max(.3,zoom/1.15);applyTransform()};
 $('#fitBtn').onclick=()=>{pan={x:20,y:20};zoom=1;applyTransform()};
-$('#todayBtn').onclick=()=>loadNote(today());
-$('#datePick').onchange=e=>{ if(e.target.value) loadNote(e.target.value); };
+$('#todayBtn').onclick=()=>loadNote(today(),{create:true});
+$('#datePick').onchange=e=>{ if(e.target.value) loadNote(e.target.value,{create:true}); };
 $('#search').oninput=refreshList;
 $('#title').oninput=scheduleSave;
 $('#exportBtn').onclick=()=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(note,null,2)],{type:'application/json'})); a.download=date+'-纪要.json'; a.click(); };
+async function deleteNote(d){
+  clearTimeout(saveTimer); // a pending autosave must not resurrect the note
+  const t=(d===date&&note.title)?'「'+note.title+'」':'';
+  if(!confirm('确定删除 '+d+' '+t+'这篇纪要吗？删除后无法恢复。')) return;
+  try{ if(!useServer) throw 0; await api('/api/notes/'+d,{method:'DELETE'}); }
+  catch{ localStorage.removeItem('notebook:'+d); }
+  if(d===date){
+    let list=[]; try{ list=await api('/api/notes'); }catch{ list=[]; }
+    const next=list.find(x=>x.date>d)||[...list].reverse().find(x=>x.date<d);
+    await loadNote(next?next.date:today());
+  } else refreshList();
+  markSaved('已删除 '+d);
+}
+$('#delBtn').onclick=()=>deleteNote(date);
 loadNote(today());

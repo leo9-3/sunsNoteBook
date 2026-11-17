@@ -1,0 +1,8 @@
+services:
+  notebook:
+    build: .
+    ports:
+      - "4173:4173"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

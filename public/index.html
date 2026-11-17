@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>内网纪要本 · Intranet Notebook</title>
+<link rel="stylesheet" href="/style.css"/>
+</head>
+<body>
+<header>
+  <div class="brand">🦆 内网纪要本</div>
+  <input id="title" placeholder="今日纪要标题，例如：供应链备货会"/>
+  <span id="saveState">已保存</span>
+  <button id="exportBtn">导出 JSON</button>
+</header>
+<div class="layout">
+  <aside>
+    <button id="todayBtn" class="primary">＋ 按今天日期新建纪要</button>
+    <label class="pick">选择日期新建 / 打开<input type="date" id="datePick"/></label>
+    <input id="search" placeholder="搜索日期或标题…"/>
+    <div id="noteList"></div>
+    <p class="hint">内网版：数据保存在服务器 <code>data/YYYY-MM-DD.json</code>，不连外网。无服务器打开时自动用浏览器本地存储演示。</p>
+  </aside>
+  <main>
+    <div class="toolbar">
+      <button data-add="text">＋ 文字块</button>
+      <button data-add="heading">＋ 标题块</button>
+      <button data-add="sticky">＋ 便签</button>
+      <button data-add="todo">＋ 待办</button>
+      <label class="fileBtn">＋ 图片<input type="file" id="imgInput" accept="image/*" multiple hidden/></label>
+      <span class="sep"></span>
+      <button id="zoomOut">－</button><span id="zoomLabel">100%</span><button id="zoomIn">＋</button>
+      <button id="fitBtn">回到原点</button>
+      <span class="hint">双击画布任意处加文字 · 粘贴/拖入图片 · 拖块移动 · 拉右下角缩放 · 拖空白处平移画布</span>
+    </div>
+    <div id="viewport"><div id="canvas"></div></div>
+  </main>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

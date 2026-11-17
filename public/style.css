@@ -1,0 +1,21 @@
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:#1f2937;background:#f3f4f6}
+header{display:flex;gap:12px;align-items:center;padding:10px 14px;background:#111827;color:#fff}header .brand{font-weight:700;white-space:nowrap}
+header #title{flex:1;padding:8px 10px;border-radius:8px;border:0;font-size:15px}#saveState{font-size:12px;color:#a7f3d0;white-space:nowrap}header button{padding:8px 12px;border-radius:8px;border:0;cursor:pointer}
+.layout{display:flex;height:calc(100vh - 53px)}
+aside{width:280px;flex:0 0 280px;background:#fff;border-right:1px solid #e5e7eb;padding:12px;overflow:auto}
+aside .primary{width:100%;padding:10px;background:#2563eb;color:#fff;border:0;border-radius:8px;cursor:pointer;font-size:14px}
+aside .pick{display:block;margin:12px 0;font-size:13px;color:#6b7280}aside .pick input{display:block;width:100%;margin-top:6px;padding:8px}
+aside #search{width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px}
+.noteItem{padding:10px;border:1px solid #e5e7eb;border-radius:10px;margin-top:8px;cursor:pointer}.noteItem.active{border-color:#2563eb;background:#eff6ff}.noteItem b{display:block}.noteItem small{color:#6b7280}
+.hint{font-size:12px;color:#6b7280;line-height:1.5}main{flex:1;display:flex;flex-direction:column;min-width:0}
+.toolbar{display:flex;gap:8px;align-items:center;padding:8px 10px;background:#fff;border-bottom:1px solid #e5e7eb;flex-wrap:wrap}.toolbar button,.fileBtn{padding:7px 10px;border:1px solid #d1d5db;background:#fff;border-radius:8px;cursor:pointer;font-size:13px}.sep{width:1px;height:22px;background:#e5e7eb}
+#viewport{flex:1;overflow:hidden;position:relative;background:radial-gradient(circle,#d1d5db 1px,transparent 1px);background-size:24px 24px;cursor:grab}
+#canvas{position:absolute;left:0;top:0;width:4000px;height:3000px;transform-origin:0 0}
+.el{position:absolute;background:#fff;border:1px solid #d1d5db;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.06);min-width:80px;min-height:36px}
+.el.selected{outline:2px solid #2563eb}
+.el .grip{height:22px;cursor:move;display:flex;justify-content:space-between;align-items:center;padding:0 6px;color:#9ca3af;font-size:12px;user-select:none}
+.el .grip button{border:0;background:none;cursor:pointer;color:#ef4444}
+.el .body{padding:6px 10px 10px;outline:none;white-space:pre-wrap;word-break:break-word}
+.el.heading .body{font-size:22px;font-weight:700}.el.sticky{background:#fef9c3}.el.todo .body{font-size:14px}
+.el img{display:block;width:100%;height:calc(100% - 22px);object-fit:contain;border-radius:0 0 10px 10px}
+.el .resize{position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:nwse-resize;color:#9ca3af}

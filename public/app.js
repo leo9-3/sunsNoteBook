@@ -9,7 +9,7 @@ const uid=()=>Math.random().toString(36).slice(2,10);
 
 async function api(path,opts){ const r=await fetch(path,opts); if(!r.ok) throw new Error(r.status); return r.json(); }
 async function loadNote(d){
-  date=d;
+  date=d; expandFor(d);
   try{ note=await api('/api/notes/'+d); }
   catch{ useServer=false; note=JSON.parse(localStorage.getItem('notebook:'+d)||JSON.stringify({date:d,title:'',elements:[]})); }
   if(!note.elements) note.elements=[];
@@ -26,14 +26,35 @@ async function save(){
 const scheduleSave=()=>{ clearTimeout(saveTimer); saveTimer=setTimeout(save,500); };
 const markSaved=t=>$('#saveState').textContent=t+(useServer?'':'（本地演示模式）');
 
+// Date tree (v0.2.1): left panel groups notes 年 -> 月 -> 日, like a classic diary tree.
+// expandedKeys holds the 'YYYY' / 'YYYY-MM' nodes the user currently has open.
+const expandedKeys=new Set();
+function expandFor(d){ if(!d) return; const p=String(d).split('-'); if(p.length<2) return; expandedKeys.add(p[0]); expandedKeys.add(p[0]+'-'+p[1]); }
 async function refreshList(){
   let list=[];
   try{ list=await api('/api/notes'); }catch{ list=Object.keys(localStorage).filter(k=>k.startsWith('notebook:')).map(k=>{const n=JSON.parse(localStorage.getItem(k));return{date:n.date,title:n.title,count:(n.elements||[]).length}}); }
-  list.sort((a,b)=>String(b.date).localeCompare(String(a.date))); // always newest date first, whatever the source order was
+  list.sort((a,b)=>String(b.date).localeCompare(String(a.date))); // newest first; tree groups inherit this order
   const q=($('#search').value||'').toLowerCase();
-  $('#noteList').innerHTML=list.filter(n=>!q||n.date.includes(q)||(n.title||'').toLowerCase().includes(q))
-    .map(n=>`<div class="noteItem ${n.date===date?'active':''}" data-d="${n.date}"><b>${n.date}</b>${n.title||'<i>未命名纪要</i>'}<br><small>${n.count||0} 个块</small></div>`).join('')||'<p class="hint">还没有纪要，点上面新建今天的。</p>';
-  document.querySelectorAll('.noteItem').forEach(el=>el.onclick=()=>loadNote(el.dataset.d));
+  const filtered=list.filter(n=>!q||n.date.includes(q)||(n.title||'').toLowerCase().includes(q));
+  const box=$('#noteList');
+  if(!filtered.length){ box.innerHTML='<p class="hint">还没有纪要，点上面新建今天的。</p>'; return; }
+  if(!expandedKeys.size){ expandFor(today()); expandFor(date); }
+  const years=new Map();
+  for(const n of filtered){ const [y,m]=n.date.split('-'); if(!years.has(y)) years.set(y,new Map()); const mm=years.get(y); if(!mm.has(m)) mm.set(m,[]); mm.get(m).push(n); }
+  let html='';
+  for(const [y,months] of years){
+    const yOpen=!!q||expandedKeys.has(y);
+    const yCount=[...months.values()].reduce((s,a)=>s+a.length,0);
+    html+=`<div class="treeRow treeYear" data-k="${y}"><span class="tw">${yOpen?'▾':'▸'}</span>${y}年<span class="cnt">${yCount} 篇</span></div>`;
+    if(yOpen) for(const [m,days] of months){
+      const key=y+'-'+m, mOpen=!!q||expandedKeys.has(key);
+      html+=`<div class="treeRow treeMonth" data-k="${key}"><span class="tw">${mOpen?'▾':'▸'}</span>${Number(m)}月<span class="cnt">${days.length} 篇</span></div>`;
+      if(mOpen) html+='<div class="treeDays">'+days.map(n=>{ const wd='日一二三四五六'[new Date(n.date+'T00:00:00').getDay()]; return `<div class="noteItem treeDay ${n.date===date?'active':''}" data-d="${n.date}"><b>${Number(n.date.slice(8))}日</b><small>周${wd}</small><span class="tt">${n.title||'<i>未命名纪要</i>'}</span></div>`; }).join('')+'</div>';
+    }
+  }
+  box.innerHTML=html;
+  box.querySelectorAll('.treeRow').forEach(r=>r.onclick=()=>{ const k=r.dataset.k; expandedKeys.has(k)?expandedKeys.delete(k):expandedKeys.add(k); refreshList(); });
+  box.querySelectorAll('.noteItem').forEach(el=>el.onclick=()=>loadNote(el.dataset.d));
 }
 
 function applyTransform(){ $('#canvas').style.transform=`translate(${pan.x}px,${pan.y}px) scale(${zoom})`; $('#zoomLabel').textContent=Math.round(zoom*100)+'%'; }

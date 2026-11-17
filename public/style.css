@@ -7,6 +7,18 @@ aside .primary{width:100%;padding:10px;background:#2563eb;color:#fff;border:0;bo
 aside .pick{display:block;margin:12px 0;font-size:13px;color:#6b7280}aside .pick input{display:block;width:100%;margin-top:6px;padding:8px}
 aside #search{width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px}
 .noteItem{padding:10px;border:1px solid #e5e7eb;border-radius:10px;margin-top:8px;cursor:pointer}.noteItem.active{border-color:#2563eb;background:#eff6ff}.noteItem b{display:block}.noteItem small{color:#6b7280}
+/* date tree (年/月/日) */
+.treeRow{display:flex;align-items:center;gap:6px;padding:6px 8px;margin-top:2px;border-radius:8px;cursor:pointer;font-weight:600;color:#374151;user-select:none}
+.treeRow:hover{background:#eef2ff}
+.treeYear{font-size:14px}
+.treeMonth{margin-left:20px;font-size:13px;font-weight:500}
+.treeRow .tw{width:14px;font-size:11px;color:#9ca3af;text-align:center}
+.treeRow .cnt{margin-left:auto;font-size:11px;font-weight:400;color:#9ca3af;background:#f3f4f6;border-radius:99px;padding:1px 7px}
+.treeDays{margin-left:38px;border-left:1px dashed #e5e7eb;padding-left:4px}
+.noteItem.treeDay{display:flex;align-items:baseline;gap:6px;border:none;border-radius:8px;margin-top:2px;padding:6px 8px}
+.noteItem.treeDay.active{border:none;background:#eff6ff;box-shadow:inset 2px 0 0 #2563eb}
+.noteItem.treeDay b{display:inline;font-size:13px}
+.noteItem.treeDay .tt{font-size:12px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hint{font-size:12px;color:#6b7280;line-height:1.5}main{flex:1;display:flex;flex-direction:column;min-width:0}
 .toolbar{display:flex;gap:8px;align-items:center;padding:8px 10px;background:#fff;border-bottom:1px solid #e5e7eb;flex-wrap:wrap}.toolbar button,.fileBtn{padding:7px 10px;border:1px solid #d1d5db;background:#fff;border-radius:8px;cursor:pointer;font-size:13px}.sep{width:1px;height:22px;background:#e5e7eb}
 #viewport{flex:1;overflow:hidden;position:relative;background:radial-gradient(circle,#d1d5db 1px,transparent 1px);background-size:24px 24px;cursor:text}

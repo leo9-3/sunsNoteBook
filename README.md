@@ -12,6 +12,8 @@
 - 💾 自动保存：服务端按天存为 `data/YYYY-MM-DD.json`；导出单篇 JSON
 - 🔒 **纯内网**：零 npm 依赖、零外网请求，不需要账号，数据不出公司网络
 
+> **隔离内网部署**：不用 GitHub/npm/Docker 拉取，直接用离线安装包（内置 Node 运行时，免安装免联网），见 [docs/OFFLINE_INSTALL.md](docs/OFFLINE_INSTALL.md)。
+
 ## 快速开始
 
 ```bash

@@ -4,8 +4,8 @@
 
 | 包 | 适用 | 内容 |
 |---|---|---|
-| `sunsNoteBook-v0.1.1-win-x64-offline.zip` | Windows 电脑/服务器（x64） | 程序本体 + 内置 Node.js 运行时（官方版 v24.22.1，SHA256 已校验） |
-| `sunsNoteBook-v0.1.1-linux-x64-offline.tar.gz` | Linux 服务器（x64） | 程序本体 + 内置 Node.js 运行时 |
+| `sunsNoteBook-v0.2.0-win-x64-offline.zip` | Windows 电脑/服务器（x64） | 程序本体 + 内置 Node.js 运行时（官方版 v24.22.1，SHA256 已校验） |
+| `sunsNoteBook-v0.2.0-linux-x64-offline.tar.gz` | Linux 服务器（x64） | 程序本体 + 内置 Node.js 运行时 |
 
 两个包都**免安装、不联网、不需要管理员权限**（开机自启/服务化除外）。
 
@@ -21,7 +21,7 @@
 ## Linux
 
 ```bash
-tar -xzf sunsNoteBook-v0.1.1-linux-x64-offline.tar.gz
+tar -xzf sunsNoteBook-v0.2.0-linux-x64-offline.tar.gz
 cd sunsNoteBook
 sh start-linux.sh            # 前台运行，先试用
 # 或装成系统服务（开机自启、后台运行）：
@@ -32,9 +32,9 @@ sudo sh install-service-linux.sh
 
 ## 数据在哪、怎么备份
 
-- 所有纪要都在程序目录的 `data/` 下，一天一个文件 `YYYY-MM-DD.json`，图片也在里面（dataURL）
-- 备份 = 拷贝整个 `data/` 文件夹；迁移 = 把 `data/` 拷进新目录覆盖
-- 升级 = 解压新包后把旧 `data/` 拷过去
+- 所有纪要都在程序目录的 `data/notebook.db`（本地 SQLite 数据库）里，图片也在其中（dataURL）
+- 从 v0.1.x 升级：旧版 `data/YYYY-MM-DD.json` 会在首次启动时自动导入数据库，原文件移到 `data/legacy-json/` 留底，不用手工处理
+- 备份 = 拷贝整个 `data/` 文件夹（服务停止时拷贝最稳妥）；迁移/升级 = 把 `data/` 拷进新目录覆盖
 
 ## 说明
 

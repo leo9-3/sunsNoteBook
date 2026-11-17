@@ -29,6 +29,7 @@ const markSaved=t=>$('#saveState').textContent=t+(useServer?'':'（本地演示�
 async function refreshList(){
   let list=[];
   try{ list=await api('/api/notes'); }catch{ list=Object.keys(localStorage).filter(k=>k.startsWith('notebook:')).map(k=>{const n=JSON.parse(localStorage.getItem(k));return{date:n.date,title:n.title,count:(n.elements||[]).length}}); }
+  list.sort((a,b)=>String(b.date).localeCompare(String(a.date))); // always newest date first, whatever the source order was
   const q=($('#search').value||'').toLowerCase();
   $('#noteList').innerHTML=list.filter(n=>!q||n.date.includes(q)||(n.title||'').toLowerCase().includes(q))
     .map(n=>`<div class="noteItem ${n.date===date?'active':''}" data-d="${n.date}"><b>${n.date}</b>${n.title||'<i>未命名纪要</i>'}<br><small>${n.count||0} 个块</small></div>`).join('')||'<p class="hint">还没有纪要，点上面新建今天的。</p>';

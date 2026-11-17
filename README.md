@@ -9,7 +9,7 @@
 - 📅 **按日期管理**：一键新建今天的纪要；日期选择器打开任意一天；左侧按日期倒序列表 + 搜索
 - 🖼️ **自由画布**：双击任意处加文字；工具栏加标题/便签/待办；图片可点选上传、拖拽拖入、Ctrl+V 直接粘贴截图
 - 🖱️ 每个块可拖动到任意位置、拉右下角缩放；画布可平移、缩放
-- 💾 自动保存：服务端按天存为 `data/YYYY-MM-DD.json`；导出单篇 JSON
+- 💾 自动保存到本地 SQLite 数据库 `data/notebook.db`（Node 内置，零依赖）；旧版按天 JSON 首次启动自动导入；可导出单篇 JSON
 - 🔒 **纯内网**：零 npm 依赖、零外网请求，不需要账号，数据不出公司网络
 
 > **隔离内网部署**：不用 GitHub/npm/Docker 拉取，直接用离线安装包（内置 Node 运行时，免安装免联网），见 [docs/OFFLINE_INSTALL.md](docs/OFFLINE_INSTALL.md)。
@@ -34,7 +34,7 @@ docker compose up -d
 ```
 server.js          # 零依赖 Node 服务 + REST API (/api/notes)
 public/            # 前端：index.html / app.js / style.css
-data/              # 每篇纪要一个 JSON：YYYY-MM-DD.json（已 gitignore 内容）
+data/              # 本地 SQLite 数据库 notebook.db（已 gitignore 内容）
 docs/              # 选型调研
 ```
 

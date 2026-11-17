@@ -33,6 +33,26 @@
       <button id="fitBtn">回到原点</button>
       <span class="hint">点画布任意空位直接输入 · 粘贴/拖入图片 · 拖图片或块顶栏移动 · 拉右下角缩放 · 按住空白拖动画布平移</span>
     </div>
+    <div class="fmtbar">
+      <span class="flabel">字体</span>
+      <select id="fontSel">
+        <option value="">默认（微软雅黑）</option>
+        <option value="SimSun, 'Songti SC', serif">宋体</option>
+        <option value="SimHei, 'Heiti SC', sans-serif">黑体</option>
+        <option value="KaiTi, 'Kaiti SC', serif">楷体</option>
+        <option value="FangSong, STFangsong, serif">仿宋</option>
+        <option value="'DengXian', sans-serif">等线</option>
+        <option value="Arial, sans-serif">Arial</option>
+        <option value="'Times New Roman', serif">Times New Roman</option>
+        <option value="Consolas, monospace">Consolas</option>
+      </select>
+      <span class="sep"></span>
+      <button data-lv="" class="lvBtn">正文</button>
+      <button data-lv="h1" class="lvBtn">标题 1</button>
+      <button data-lv="h2" class="lvBtn">标题 2</button>
+      <button data-lv="h3" class="lvBtn">标题 3</button>
+      <span class="hint">选中文字后点样式切换（按行生效，和 Word 的标题样式一样）· 快捷键 Ctrl+Alt+0/1/2/3</span>
+    </div>
     <div id="viewport"><div id="canvas"></div></div>
   </main>
 </div>

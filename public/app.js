@@ -67,7 +67,49 @@ function startMove(e, el, div){
   const up=()=>{ removeEventListener('mousemove',mv); removeEventListener('mouseup',up); scheduleSave(); };
   addEventListener('mousemove',mv); addEventListener('mouseup',up);
 }
-function readBody(b){ const t=(b.innerText!==undefined?b.innerText:b.textContent)||''; return t.replace(/\r\n?/g,'\n').replace(/\n+$/,''); }
+// ---- per-line formatting (v0.2.5) -------------------------------------------
+// A body is a flat list of line <div>s. el.text stays plain text with \n;
+// el.marks[lineIdx] = 'h1'|'h2'|'h3' and el.fonts[lineIdx] = a CSS font stack
+// carry the Word-style paragraph formatting. The DOM is the source of truth
+// while editing; readRich() folds it back into the data model on every input.
+function renderBody(b, el){
+  b.innerHTML='';
+  if(!(el.text||'')) return; // leave empty: the CSS placeholder shows
+  el.text.split('\n').forEach((t,i)=>{
+    const d=document.createElement('div');
+    d.className='ln'+(el.marks&&el.marks[i]?' lv-'+el.marks[i]:'');
+    if(el.fonts&&el.fonts[i]) d.style.fontFamily=el.fonts[i];
+    d.textContent=t;
+    if(t==='') d.appendChild(document.createElement('br'));
+    b.appendChild(d);
+  });
+}
+function readRich(b, el){
+  const lines=[], marks={}, fonts={};
+  const push=(txt,node)=>{
+    String(txt).replace(/\r\n?/g,'\n').split('\n').forEach((part,j)=>{
+      const i=lines.length; lines.push(part);
+      if(node&&j===0){
+        const m=/lv-(h[123])/.exec(node.className||''); if(m) marks[i]=m[1];
+        if(node.style&&node.style.fontFamily) fonts[i]=node.style.fontFamily;
+      }
+    });
+  };
+  let stray='';
+  [...b.childNodes].forEach(ch=>{
+    if(ch.nodeType===3){ stray+=ch.textContent; }
+    else if(ch.nodeName==='BR'){ push(stray,null); stray=''; }
+    else { if(stray){ push(stray,null); stray=''; } push(ch.innerText||'', ch); }
+  });
+  if(stray) push(stray,null);
+  if(!lines.length) lines.push('');
+  let end=lines.length; while(end>1 && lines[end-1]==='') end--;
+  lines.length=end;
+  Object.keys(marks).forEach(k=>{ if(+k>=end) delete marks[k]; });
+  Object.keys(fonts).forEach(k=>{ if(+k>=end) delete fonts[k]; });
+  el.text=lines.join('\n');
+  el.marks=marks; el.fonts=fonts;
+}
 function focusBody(el){ setTimeout(()=>{ const b=document.querySelector(`[data-id="${el.id}"] .body`); if(!b) return; b.focus();
   const r=document.createRange(); r.selectNodeContents(b); r.collapse(false); const s=getSelection(); s.removeAllRanges(); s.addRange(r); },0); }
 
@@ -85,11 +127,11 @@ function nodeFor(el){
     (el.type==='image'?`<img draggable="false" alt=""/>`:`<div class="body" contenteditable="true" data-placeholder="在这里输入…"></div>`)+(autoFit?'':`<div class="resize">◢</div>`);
   if(el.type==='image'){ div.querySelector('img').src=el.src; }
   else{
-    const b=div.querySelector('.body'); b.textContent=el.text||'';
-    // read with innerText, never textContent: line breaks inside a contenteditable
-    // live in its <div>/<br> structure, and textContent glues lines together with
-    // no separator — that is what merged multi-line notes into one blob (v0.2.4 fix)
-    b.oninput=()=>{ el.text=readBody(b); scheduleSave(); };
+    const b=div.querySelector('.body'); renderBody(b, el);
+    // read via readRich (innerText-based), never textContent: line breaks inside a
+    // contenteditable live in its <div>/<br> structure, and textContent glues lines
+    // together with no separator — that merged multi-line notes into one blob (v0.2.4)
+    b.oninput=()=>{ readRich(b, el); scheduleSave(); };
     // clicking into text edits it — it must NOT start a move/pan
     b.onmousedown=e=>e.stopPropagation();
     // an empty text block that loses focus disappears again (OneNote behaviour)
@@ -117,6 +159,122 @@ addEventListener('paste',e=>{ const item=[...(e.clipboardData||[]).items||[]].fi
 // Ctrl+S / Cmd+S saves the note itself — never the browser's "save webpage" dialog
 addEventListener('keydown',e=>{
   if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey&&e.key.toLowerCase()==='s'){ e.preventDefault(); clearTimeout(saveTimer); save(); }
+});
+// ---- format bar: font + heading levels, applied per line (Word-style) -------
+let fmtCtx=null; // last text selection inside a body: {body, range}
+document.addEventListener('selectionchange',()=>{
+  const s=getSelection(); if(!s.rangeCount) return;
+  const r=s.getRangeAt(0); let n=r.startContainer;
+  while(n&&!(n.classList&&n.classList.contains('body'))) n=n.parentNode;
+  if(n){ fmtCtx={body:n, range:r.cloneRange()}; syncFmtBar(); }
+});
+function fmtTarget(){
+  if(!fmtCtx||!document.contains(fmtCtx.body)) return null;
+  const wrap=fmtCtx.body.closest('.el'); if(!wrap) return null;
+  const el=note.elements.find(x=>x.id===wrap.dataset.id); if(!el) return null;
+  return {b:fmtCtx.body, el};
+}
+// While typing, the browser leaves the first line as bare text nodes (only Enter
+// creates <div>s). Wrap such stray lines into line divs so every line is a real
+// element a style can hang on. Nodes are moved, never recreated, so the live
+// selection/caret survive the reparenting.
+function normalizeBody(b){
+  if(![...b.childNodes].some(ch=>ch.nodeType===3||ch.nodeName==='BR')) return;
+  const frag=document.createDocumentFragment(); let cur=null;
+  const newDiv=()=>{ const d=document.createElement('div'); d.className='ln'; frag.appendChild(d); return d; };
+  [...b.childNodes].forEach(ch=>{
+    if(ch.nodeType===3){ if(!cur) cur=newDiv(); cur.appendChild(ch); }
+    else if(ch.nodeName==='BR'){ if(cur){ cur.appendChild(ch); } else { newDiv().appendChild(ch); } cur=null; }
+    else { cur=null; frag.appendChild(ch); }
+  });
+  b.appendChild(frag);
+}
+// data-line slots of a body in order; a slot is the line's element, or null for a
+// bare-text line (no element yet, hence no style). Mirrors readRich's line split.
+function lineNodes(b){
+  const out=[]; let open=false;
+  [...b.childNodes].forEach(ch=>{
+    if(ch.nodeType===3){ if(ch.textContent && !open){ out.push(null); open=true; } }
+    else if(ch.nodeName==='BR'){ if(open) open=false; else out.push(null); }
+    else { out.push(ch); open=false; }
+  });
+  if(!out.length) out.push(null);
+  return out;
+}
+function slotOfChild(b, target){
+  let li=-1, open=false;
+  for(const ch of b.childNodes){
+    if(ch.nodeType===3){ if(ch.textContent && !open){ li++; open=true; } }
+    else if(ch.nodeName==='BR'){ if(open) open=false; else li++; }
+    else { li++; open=false; }
+    if(ch===target) return Math.max(li,0);
+  }
+  return Math.max(li,0);
+}
+function boundaryLine(b, container, offset, isEnd){
+  if(container===b){
+    const kids=[...b.childNodes]; if(!kids.length) return 0;
+    return slotOfChild(b, kids[Math.max(0, Math.min(isEnd?offset-1:offset, kids.length-1))]);
+  }
+  let n=container; while(n&&n.parentNode!==b) n=n.parentNode;
+  return n?slotOfChild(b, n):0;
+}
+function childIndexAt(b, container, offset, isEnd){
+  if(container===b) return isEnd?offset-1:offset;
+  let n=container; while(n&&n.parentNode!==b) n=n.parentNode;
+  return n?[...b.childNodes].indexOf(n):0;
+}
+function targetLines(b, range){
+  const divs=[...b.children]; if(!divs.length) return [];
+  if(!range) return [divs[0]];
+  const kids=[...b.childNodes];
+  const si=childIndexAt(b, range.startContainer, range.startOffset, false);
+  let ei=childIndexAt(b, range.endContainer, range.endOffset, true);
+  // a triple-clicked line's selection often ends at offset 0 of the NEXT line;
+  // that next line is not part of the selection (Word behaves the same way)
+  if(ei>si && range.endOffset===0){
+    const lineEl=divs[ei];
+    if(lineEl && (range.endContainer===lineEl || lineEl.contains(range.endContainer))){
+      const probe=document.createRange(); probe.setStart(lineEl,0); probe.setEnd(range.endContainer, range.endOffset);
+      if(probe.toString().length===0) ei--;
+    }
+  }
+  const hit=divs.filter(d=>{ const i=kids.indexOf(d); return i>=Math.min(si,ei)&&i<=Math.max(si,ei); });
+  return hit.length?hit:[divs[0]];
+}
+function applyFmt(mut){
+  const t=fmtTarget(); if(!t) return;
+  readRich(t.b, t.el); // fold the latest edits into the model first
+  normalizeBody(t.b); // every line becomes a real element (see above)
+  if(!t.b.children.length) renderBody(t.b, t.el);
+  targetLines(t.b, fmtCtx.range).forEach(mut);
+  readRich(t.b, t.el); scheduleSave(); syncFmtBar();
+  // give the caret back to the text so the user can keep typing
+  try{ t.b.focus(); const s=getSelection(); s.removeAllRanges(); s.addRange(fmtCtx.range); }
+  catch(e){ focusBody(t.el); }
+}
+function applyLevel(lv){ applyFmt(d=>{ d.className='ln'+(lv?' lv-'+lv:''); }); }
+function applyFont(stack){ applyFmt(d=>{ d.style.fontFamily=stack; }); }
+function syncFmtBar(){
+  const t=fmtTarget(); if(!t) return;
+  const li=boundaryLine(t.b, fmtCtx.range.startContainer, fmtCtx.range.startOffset, false);
+  const first=lineNodes(t.b)[li];
+  const m=first?/lv-(h[123])/.exec(first.className||''):null;
+  document.querySelectorAll('.lvBtn').forEach(btn=>btn.classList.toggle('on',(btn.dataset.lv||'')===(m?m[1]:'')));
+  const fs=$('#fontSel'); const want=(first&&first.style&&first.style.fontFamily)||'';
+  if([...fs.options].some(o=>o.value===want)) fs.value=want;
+}
+document.querySelectorAll('.lvBtn').forEach(btn=>{
+  btn.addEventListener('mousedown',e=>e.preventDefault()); // keep the text selection alive
+  btn.addEventListener('click',()=>applyLevel(btn.dataset.lv||''));
+});
+$('#fontSel').addEventListener('change',e=>applyFont(e.target.value));
+// Ctrl+Alt+0/1/2/3 switch the current line's level (OneNote-style)
+addEventListener('keydown',e=>{
+  if(e.ctrlKey&&e.altKey&&['0','1','2','3'].includes(e.key)){
+    if(!fmtTarget()) return;
+    e.preventDefault(); applyLevel(e.key==='0'?'':'h'+e.key);
+  }
 });
 // kill the browser's native drag for anything on the canvas: dragging an image must move it, never copy it
 document.addEventListener('dragstart',e=>{ if(e.target.closest && e.target.closest('#canvas')) e.preventDefault(); });

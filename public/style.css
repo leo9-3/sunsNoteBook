@@ -24,14 +24,23 @@ aside #search{width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px}
 .hint{font-size:12px;color:#6b7280;line-height:1.5}main{flex:1;display:flex;flex-direction:column;min-width:0}
 .toolbar{display:flex;gap:8px;align-items:center;padding:8px 10px;background:#fff;border-bottom:1px solid #e5e7eb;flex-wrap:wrap}.toolbar button,.fileBtn{padding:7px 10px;border:1px solid #d1d5db;background:#fff;border-radius:8px;cursor:pointer;font-size:13px}.sep{width:1px;height:22px;background:#e5e7eb}
 .fmtbar{display:flex;gap:8px;align-items:center;padding:6px 10px;background:#fff;border-bottom:1px solid #e5e7eb;flex-wrap:wrap}.fmtbar .flabel{font-size:12px;color:#6b7280}.fmtbar select{padding:6px 8px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;background:#fff}.fmtbar button{padding:6px 12px;border:1px solid #d1d5db;background:#fff;border-radius:8px;cursor:pointer;font-size:13px}.fmtbar button.on{background:#2563eb;color:#fff;border-color:#2563eb}
+.fmtbar button.swatch{width:18px;height:18px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px #d1d5db;padding:0}
+.fmtbar input[type="color"]{width:32px;height:24px;border:1px solid #d1d5db;border-radius:6px;padding:0;background:#fff;cursor:pointer}
 .el .body .ln{min-height:1.15em}
 .el .body .lv-h1{font-size:24px;font-weight:700;line-height:1.3}
 .el .body .lv-h2{font-size:19px;font-weight:700;line-height:1.35}
 .el .body .lv-h3{font-size:16px;font-weight:700;line-height:1.4}
 #viewport{flex:1;overflow:hidden;position:relative;background:radial-gradient(circle,#d1d5db 1px,transparent 1px);background-size:24px 24px;cursor:text}
-.ctxNew{position:fixed;z-index:60;width:248px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.18);padding:14px}
+.ctxNew{position:fixed;z-index:60;left:50%;top:50%;transform:translate(-50%,-50%);width:300px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.18);padding:14px}
 .ctxNew .ctxTitle{font-size:13px;font-weight:600;color:#374151;margin-bottom:10px}
-.ctxNew input[type="date"]{width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px;font-size:14px}
+.ctxNew .calHead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.ctxNew .calHead span{font-size:14px;font-weight:600;color:#1f2937}
+.ctxNew .calHead button{width:28px;height:28px;border:1px solid #d1d5db;background:#fff;border-radius:8px;cursor:pointer;font-size:15px;line-height:1;color:#374151}
+.calGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.calGrid .calWd{text-align:center;font-size:11px;color:#9ca3af;padding:3px 0}
+.calGrid .calDay{text-align:center;font-size:13px;padding:7px 0;border-radius:8px;cursor:pointer;color:#1f2937}
+.calGrid .calDay:hover{background:#eff6ff}
+.calGrid .calDay.today{background:#2563eb;color:#fff;font-weight:700}
 .ctxNew .ctxBtns{display:flex;gap:8px;margin-top:12px}
 .ctxNew .ctxBtns button{flex:1;padding:8px;border:1px solid #d1d5db;background:#fff;border-radius:8px;cursor:pointer;font-size:13px}
 .ctxNew .ctxBtns button.primary{background:#2563eb;color:#fff;border-color:#2563eb}

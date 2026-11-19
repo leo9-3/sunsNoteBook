@@ -32,6 +32,7 @@ async function save(){
   // every new note gets a default name like "17日 星期二" (kalo's rule); a name the
   // user typed always wins, and clearing a name back to blank restores the default
   if(!(note.title||'').trim()){ note.title=defaultTitle(date); if(document.activeElement!==$('#title')) $('#title').value=note.title; }
+  note.elements.forEach(el=>{ if(el.runs&&Object.keys(el.runs).length) el.colors={}; }); // runs supersede legacy colours
   // never persist empty text blocks (e.g. a stray click that was never typed into)
   note.elements=note.elements.filter(el=>el.type==='image'||el.type==='table'||(el.text||'').trim()!==''||el.id===window._sel);
   try{ if(!useServer) throw 0; await api('/api/notes/'+date,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(note)}); }
@@ -91,15 +92,32 @@ function startMove(e, el, div){
 // el.marks[lineIdx] = 'h1'|'h2'|'h3' and el.fonts[lineIdx] = a CSS font stack
 // carry the Word-style paragraph formatting. The DOM is the source of truth
 // while editing; readRich() folds it back into the data model on every input.
+function renderLineContent(d, text, runs){
+  if(text===''){ d.appendChild(document.createElement('br')); return; }
+  if(!runs||!runs.length){ d.textContent=text; return; }
+  let pos=0;
+  runs.slice().sort((a,b)=>a.s-b.s).forEach(r=>{
+    if(r.s>pos) d.appendChild(document.createTextNode(text.slice(pos, r.s)));
+    const sp=document.createElement('span'); sp.style.color=r.c; sp.textContent=text.slice(r.s, r.e); d.appendChild(sp);
+    pos=Math.max(pos, r.e);
+  });
+  if(pos<text.length) d.appendChild(document.createTextNode(text.slice(pos)));
+}
 function renderBody(b, el){
   b.innerHTML='';
   if(!(el.text||'')) return; // leave empty: the CSS placeholder shows
+  // legacy migration: v0.2.8 stored whole-line colours in el.colors — turn them
+  // into full-line character runs once; from v0.2.9 colours live only in el.runs
+  if((!el.runs||!Object.keys(el.runs).length)&&el.colors&&Object.keys(el.colors).length){
+    el.runs={};
+    el.text.split('\n').forEach((t,i)=>{ if(el.colors[i]&&t) el.runs[i]=[{s:0, e:t.length, c:el.colors[i]}]; });
+    el.colors={}; // migrated — never let the stale per-line colours resurrect
+  }
   el.text.split('\n').forEach((t,i)=>{
     const d=document.createElement('div');
     d.className='ln'+(el.marks&&el.marks[i]?' lv-'+el.marks[i]:'');
     if(el.fonts&&el.fonts[i]) d.style.fontFamily=el.fonts[i];
-    d.textContent=t;
-    if(t==='') d.appendChild(document.createElement('br'));
+    renderLineContent(d, t, el.runs&&el.runs[i]);
     b.appendChild(d);
   });
 }
@@ -129,31 +147,61 @@ function tableOp(el, div, op){
   else if(op==='delc'){ if(cols>1) el.rows.forEach(r=>r.pop()); }
   buildTable(div, el); scheduleSave();
 }
+// Extract one line div's text plus its character-level colour runs. Spans carry
+// the colour; the div's own colour (v0.2.8 per-line data) counts as a base run.
+function extractLine(div){
+  let text=''; const lr=[];
+  const addText=(t,color)=>{ if(color&&t) lr.push({s:text.length, e:text.length+t.length, c:color}); text+=t; };
+  const walk=(node,color)=>{
+    [...node.childNodes].forEach(ch=>{
+      if(ch.nodeType===3) addText(ch.textContent, color);
+      else if(ch.nodeName==='BR') text+='\n';
+      else{
+        const c=(ch.style&&ch.style.color)||color;
+        const block=/^(DIV|P)$/.test(ch.nodeName);
+        if(block&&text&&!text.endsWith('\n')) text+='\n';
+        walk(ch, c);
+        if(block&&!text.endsWith('\n')) text+='\n';
+      }
+    });
+  };
+  walk(div, (div.style&&div.style.color)||'');
+  if(text.endsWith('\n')) text=text.slice(0,-1); // a trailing <br> is the empty-line marker, not a line break
+  const merged=[]; lr.forEach(r=>{ if(r.e<=r.s) return; const last=merged[merged.length-1]; if(last&&last.c===r.c&&last.e===r.s) last.e=r.e; else merged.push({...r}); });
+  return {text, runs:merged};
+}
 function readRich(b, el){
-  const lines=[], marks={}, fonts={};
-  const push=(txt,node)=>{
-    String(txt).replace(/\r\n?/g,'\n').split('\n').forEach((part,j)=>{
+  const lines=[], marks={}, fonts={}, runs={};
+  const pushPlain=txt=>{
+    String(txt).replace(/\r\n?/g,'\n').split('\n').forEach(part=>lines.push(part));
+  };
+  const pushLine=div=>{
+    const ex=extractLine(div);
+    String(ex.text).replace(/\r\n?/g,'\n').split('\n').forEach((part,j)=>{
       const i=lines.length; lines.push(part);
-      if(node&&j===0){
-        const m=/lv-(h[123])/.exec(node.className||''); if(m) marks[i]=m[1];
-        if(node.style&&node.style.fontFamily) fonts[i]=node.style.fontFamily;
+      if(j===0){
+        const m=/lv-(h[123])/.exec(div.className||''); if(m) marks[i]=m[1];
+        if(div.style&&div.style.fontFamily) fonts[i]=div.style.fontFamily;
+        const rr=ex.runs.filter(r=>r.s<part.length).map(r=>({s:r.s, e:Math.min(r.e, part.length), c:r.c})).filter(r=>r.e>r.s);
+        if(rr.length) runs[i]=rr;
       }
     });
   };
   let stray='';
   [...b.childNodes].forEach(ch=>{
     if(ch.nodeType===3){ stray+=ch.textContent; }
-    else if(ch.nodeName==='BR'){ push(stray,null); stray=''; }
-    else { if(stray){ push(stray,null); stray=''; } push(ch.innerText||'', ch); }
+    else if(ch.nodeName==='BR'){ pushPlain(stray); stray=''; }
+    else { if(stray){ pushPlain(stray); stray=''; } pushLine(ch); }
   });
-  if(stray) push(stray,null);
+  if(stray) pushPlain(stray);
   if(!lines.length) lines.push('');
   let end=lines.length; while(end>1 && lines[end-1]==='') end--;
   lines.length=end;
   Object.keys(marks).forEach(k=>{ if(+k>=end) delete marks[k]; });
   Object.keys(fonts).forEach(k=>{ if(+k>=end) delete fonts[k]; });
+  Object.keys(runs).forEach(k=>{ if(+k>=end) delete runs[k]; });
   el.text=lines.join('\n');
-  el.marks=marks; el.fonts=fonts;
+  el.marks=marks; el.fonts=fonts; el.runs=runs; el.colors={}; // colours live in runs now (v0.2.9)
 }
 function focusBody(el){ setTimeout(()=>{ const b=document.querySelector(`[data-id="${el.id}"] .body`); if(!b) return; b.focus();
   const r=document.createRange(); r.selectNodeContents(b); r.collapse(false); const s=getSelection(); s.removeAllRanges(); s.addRange(r); },0); }
@@ -161,17 +209,19 @@ function focusBody(el){ setTimeout(()=>{ const b=document.querySelector(`[data-i
 function nodeFor(el){
   const div=document.createElement('div'); div.className='el '+el.type+(el.id===window._sel?' selected':''); div.dataset.id=el.id;
   // text/heading blocks hug their content (v0.2.2): the box is only as wide as the
-  // longest line, so clicking beside the text hits the canvas and starts a new block;
-  // only clicking the text itself edits it. Other block types keep their fixed size.
-  const autoFit=el.type==='text'||el.type==='heading';
+  // longest line, so clicking beside the text hits the canvas and starts a new block.
+  // Since v0.3.0 the user can drag the corner to give a text block a manual width
+  // (el.mw) — text then wraps inside that width; double-clicking the corner clears
+  // el.mw and restores the hug-content behaviour. Other block types keep fixed size.
+  const isText=el.type==='text'||el.type==='heading';
   div.style.left=el.x+'px'; div.style.top=el.y+'px';
-  if(autoFit){ div.style.width='max-content'; div.style.maxWidth='900px'; }
+  if(isText){ if(el.mw){ div.style.width=el.mw+'px'; } else { div.style.width='max-content'; div.style.maxWidth='900px'; } }
   else{ div.style.width=el.w+'px'; if(el.h) div.style.height=el.h+'px'; }
   const label=el.type==='image'?'图片':el.type==='todo'?'待办':el.type==='sticky'?'便签':el.type==='table'?'表格':'文字';
   div.innerHTML=`<div class="grip"><span>⠿ ${label}</span>`+
     (el.type==='table'?`<span class="tops"><button data-op="addr">＋行</button><button data-op="delr">－行</button><button data-op="addc">＋列</button><button data-op="delc">－列</button></span>`:'')+
     `<button class="del" title="删除">✕</button></div>`+
-    (el.type==='image'?`<img draggable="false" alt=""/>`:el.type==='table'?`<div class="tblWrap"><table class="tbl"></table></div>`:`<div class="body" contenteditable="true" data-placeholder="在这里输入…"></div>`)+(autoFit?'':`<div class="resize">◢</div>`);
+    (el.type==='image'?`<img draggable="false" alt=""/>`:el.type==='table'?`<div class="tblWrap"><table class="tbl"></table></div>`:`<div class="body" contenteditable="true" data-placeholder="在这里输入…"></div>`)+`<div class="resize" title="拖动调整大小；文字块双击此角恢复自动宽度">◢</div>`;
   if(el.type==='image'){ div.querySelector('img').src=el.src; }
   else if(el.type==='table'){
     buildTable(div, el);
@@ -192,10 +242,21 @@ function nodeFor(el){
   div.querySelector('.grip').onmousedown=e=>startMove(e,el,div);
   // images: drag the image itself to move it (native HTML drag is disabled, so no copy/ghost)
   if(el.type==='image'){ div.querySelector('img').onmousedown=e=>startMove(e,el,div); }
-  const rz=div.querySelector('.resize'); if(rz) rz.onmousedown=e=>{ e.preventDefault(); e.stopPropagation(); const sx=e.clientX,sy=e.clientY,ow=el.w,oh=el.h||div.offsetHeight;
-    const mv=ev=>{ el.w=Math.max(60,ow+(ev.clientX-sx)/zoom); el.h=Math.max(36,oh+(ev.clientY-sy)/zoom); div.style.width=el.w+'px'; div.style.height=el.h+'px'; };
-    const up=()=>{ removeEventListener('mousemove',mv); removeEventListener('mouseup',up); scheduleSave(); };
-    addEventListener('mousemove',mv); addEventListener('mouseup',up); };
+  const rz=div.querySelector('.resize'); if(rz){
+    rz.onmousedown=e=>{ e.preventDefault(); e.stopPropagation(); const sx=e.clientX,sy=e.clientY,ow=el.w,oh=el.h||div.offsetHeight,owT=el.mw||div.offsetWidth;
+      const mv=ev=>{
+        if(isText){ // text blocks: width only — the height follows the wrapped content
+          el.mw=Math.max(80, Math.round(owT+(ev.clientX-sx)/zoom));
+          div.style.width=el.mw+'px'; div.style.maxWidth='none';
+        } else {
+          el.w=Math.max(60,ow+(ev.clientX-sx)/zoom); el.h=Math.max(36,oh+(ev.clientY-sy)/zoom);
+          div.style.width=el.w+'px'; div.style.height=el.h+'px';
+        }
+      };
+      const up=()=>{ removeEventListener('mousemove',mv); removeEventListener('mouseup',up); scheduleSave(); };
+      addEventListener('mousemove',mv); addEventListener('mouseup',up); };
+    if(isText) rz.ondblclick=e=>{ e.stopPropagation(); el.mw=null; render(); scheduleSave(); };
+  }
   div.onmousedown=()=>select(el.id);
   return div;
 }
@@ -306,6 +367,66 @@ function applyFmt(mut){
 }
 function applyLevel(lv){ applyFmt(d=>{ d.className='ln'+(lv?' lv-'+lv:''); }); }
 function applyFont(stack){ applyFmt(d=>{ d.style.fontFamily=stack; }); }
+// ---- character-level colour (v0.2.9): colour applies to the exact selection --
+function lineTextOffset(lineDiv, container, offset){
+  if(!lineDiv) return 0;
+  if(container===lineDiv){ let n=0; const kids=[...lineDiv.childNodes]; for(let i=0;i<Math.min(offset,kids.length);i++) n+=kids[i].textContent.length; return n; }
+  let n=0; const walker=document.createTreeWalker(lineDiv, NodeFilter.SHOW_TEXT); let cur;
+  while(cur=walker.nextNode()){ if(cur===container) return n+Math.min(offset, cur.textContent.length); n+=cur.textContent.length; }
+  return n;
+}
+function applyRuns(el, lineIdx, s, e, c){
+  if(e<=s) return;
+  const out=[];
+  ((el.runs&&el.runs[lineIdx])||[]).forEach(r=>{
+    if(r.e<=s||r.s>=e){ out.push(r); return; }
+    if(r.s<s) out.push({s:r.s, e:s, c:r.c});
+    if(r.e>e) out.push({s:e, e:r.e, c:r.c});
+  });
+  if(c) out.push({s, e, c});
+  out.sort((a,b)=>a.s-b.s);
+  const merged=[]; out.forEach(r=>{ const last=merged[merged.length-1]; if(last&&last.c===r.c&&last.e===r.s) last.e=r.e; else merged.push({...r}); });
+  el.runs=el.runs||{};
+  if(merged.length) el.runs[lineIdx]=merged; else delete el.runs[lineIdx];
+}
+function selectRangeByOffsets(b, sLine, sOff, eLine, eOff){
+  const divs=[...b.children]; if(!divs.length) return;
+  const point=(div, off)=>{
+    const walker=document.createTreeWalker(div, NodeFilter.SHOW_TEXT); let cur, acc=0;
+    while(cur=walker.nextNode()){ if(acc+cur.textContent.length>=off) return [cur, off-acc]; acc+=cur.textContent.length; }
+    return [div, div.childNodes.length];
+  };
+  const sp=point(divs[Math.min(sLine, divs.length-1)], sOff);
+  const ep=point(divs[Math.min(eLine, divs.length-1)], eOff);
+  const r=document.createRange(); r.setStart(sp[0], sp[1]); r.setEnd(ep[0], ep[1]);
+  const sel=getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  fmtCtx={body:b, range:r.cloneRange()};
+}
+function applyColor(c){
+  const t=fmtTarget(); if(!t) return;
+  readRich(t.b, t.el); // fold the latest edits (and any legacy line colours) into the model
+  normalizeBody(t.b); // every line becomes a real element
+  if(!t.b.children.length) renderBody(t.b, t.el);
+  const range=fmtCtx.range; if(!range) return;
+  const divs=[...t.b.children];
+  const lineLen=i=>(t.el.text.split('\n')[i]||'').length;
+  let sLine=boundaryLine(t.b, range.startContainer, range.startOffset, false);
+  let eLine=boundaryLine(t.b, range.endContainer, range.endOffset, true);
+  let sOff=lineTextOffset(divs[sLine], range.startContainer, range.startOffset);
+  let eOff=lineTextOffset(divs[eLine], range.endContainer, range.endOffset);
+  if(eOff===0&&eLine>sLine){ eLine--; eOff=lineLen(eLine); } // triple-click spill into the next line
+  if(sLine===eLine&&sOff===eOff){ sOff=0; eOff=lineLen(sLine); } // caret only: colour the whole line (v0.2.8 behaviour)
+  for(let i=sLine;i<=eLine;i++) applyRuns(t.el, i, i===sLine?sOff:0, i===eLine?eOff:lineLen(i), c);
+  renderBody(t.b, t.el); scheduleSave(); syncFmtBar();
+  try{ t.b.focus(); selectRangeByOffsets(t.b, sLine, sOff, eLine, eOff); }
+  catch(e){ focusBody(t.el); }
+}
+function cssToHex(c){
+  if(!c) return null;
+  if(/^#[0-9a-f]{6}$/i.test(c)) return c;
+  const m=/rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c); if(!m) return null;
+  return '#'+[1,2,3].map(i=>(+m[i]).toString(16).padStart(2,'0')).join('');
+}
 function syncFmtBar(){
   const t=fmtTarget(); if(!t) return;
   const li=boundaryLine(t.b, fmtCtx.range.startContainer, fmtCtx.range.startOffset, false);
@@ -314,12 +435,21 @@ function syncFmtBar(){
   document.querySelectorAll('.lvBtn').forEach(btn=>btn.classList.toggle('on',(btn.dataset.lv||'')===(m?m[1]:'')));
   const fs=$('#fontSel'); const want=(first&&first.style&&first.style.fontFamily)||'';
   if([...fs.options].some(o=>o.value===want)) fs.value=want;
+  let colAtCaret='';
+  { let n=fmtCtx.range.startContainer; while(n&&n!==t.b){ if(n.style&&n.style.color){ colAtCaret=n.style.color; break; } n=n.parentNode; } }
+  const hex=cssToHex(colAtCaret||(first&&first.style?first.style.color:''));
+  if(hex) $('#colorPick').value=hex; // the picker opens at the colour under the caret
 }
 document.querySelectorAll('.lvBtn').forEach(btn=>{
   btn.addEventListener('mousedown',e=>e.preventDefault()); // keep the text selection alive
   btn.addEventListener('click',()=>applyLevel(btn.dataset.lv||''));
 });
 $('#fontSel').addEventListener('change',e=>applyFont(e.target.value));
+document.querySelectorAll('.colorBtn').forEach(btn=>{
+  btn.addEventListener('mousedown',e=>e.preventDefault()); // keep the text selection alive
+  btn.addEventListener('click',()=>applyColor(btn.dataset.color||''));
+});
+$('#colorPick').addEventListener('change',e=>applyColor(e.target.value));
 // Ctrl+Alt+0/1/2/3 switch the current line's level (OneNote-style)
 addEventListener('keydown',e=>{
   if(e.ctrlKey&&e.altKey&&['0','1','2','3'].includes(e.key)){
@@ -337,28 +467,43 @@ $('#viewport').addEventListener('drop',e=>{
   const p=canvasPos(e.clientX,e.clientY);
   files.forEach((f,i)=>{ const r=new FileReader(); r.onload=()=>addEl('image',p.x+i*24,p.y+i*24,{src:r.result}); r.readAsDataURL(f); });
 });
-// right-click on blank areas (canvas or the sidebar's empty space) pops a small
-// date picker to create/open a note for any day (v0.2.7)
+// right-click on blank areas (canvas or the sidebar's empty space) pops a
+// centred calendar to create/open a note for any day (v0.2.7; centred inline
+// calendar since v0.3.0 — no second click to open a native date picker)
 const ctxNew=$('#ctxNew');
-function showCtxNew(x,y){
-  $('#ctxDate').value=today();
-  ctxNew.hidden=false;
-  ctxNew.style.left=Math.min(x,innerWidth-262)+'px';
-  ctxNew.style.top=Math.min(y,innerHeight-170)+'px';
-  setTimeout(()=>$('#ctxDate').focus(),0);
+let calView=null; // {y, m} — the month the popup calendar is showing
+function renderCal(){
+  const t0=today();
+  $('#calTitle').textContent=calView.y+'年'+(calView.m+1)+'月';
+  const startDay=(new Date(calView.y, calView.m, 1).getDay()+6)%7; // Monday-first grid
+  const days=new Date(calView.y, calView.m+1, 0).getDate();
+  let html='';
+  ['一','二','三','四','五','六','日'].forEach(d=>html+='<div class="calWd">'+d+'</div>');
+  for(let i=0;i<startDay;i++) html+='<div></div>';
+  for(let d=1;d<=days;d++){
+    const ds=calView.y+'-'+String(calView.m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    html+='<div class="calDay'+(ds===t0?' today':'')+'" data-d="'+ds+'">'+d+'</div>';
+  }
+  $('#calGrid').innerHTML=html;
+  $('#calGrid').querySelectorAll('.calDay').forEach(el=>el.onclick=()=>{ hideCtxNew(); loadNote(el.dataset.d,{create:true}); });
+}
+function showCtxNew(){
+  const n=new Date(); calView={y:n.getFullYear(), m:n.getMonth()};
+  renderCal(); ctxNew.hidden=false;
 }
 function hideCtxNew(){ ctxNew.hidden=true; }
+$('#calPrev').onclick=()=>{ calView.m--; if(calView.m<0){ calView.m=11; calView.y--; } renderCal(); };
+$('#calNext').onclick=()=>{ calView.m++; if(calView.m>11){ calView.m=0; calView.y++; } renderCal(); };
+$('#ctxToday').onclick=()=>{ hideCtxNew(); loadNote(today(),{create:true}); };
+$('#ctxCancel').onclick=hideCtxNew;
 $('#viewport').addEventListener('contextmenu',e=>{
   if(e.target.id!=='viewport'&&e.target.id!=='canvas') return; // blank canvas only
-  e.preventDefault(); showCtxNew(e.clientX,e.clientY);
+  e.preventDefault(); showCtxNew();
 });
 document.querySelector('aside').addEventListener('contextmenu',e=>{
   if(e.target.closest('button,input,select,textarea,.noteItem,.treeRow')) return;
-  e.preventDefault(); showCtxNew(e.clientX,e.clientY);
+  e.preventDefault(); showCtxNew();
 });
-$('#ctxGo').onclick=()=>{ const v=$('#ctxDate').value; hideCtxNew(); if(v) loadNote(v,{create:true}); };
-$('#ctxCancel').onclick=hideCtxNew;
-$('#ctxDate').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#ctxGo').click(); } });
 document.addEventListener('mousedown',e=>{ if(!ctxNew.hidden&&!e.target.closest('#ctxNew')) hideCtxNew(); });
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') hideCtxNew(); });
 // empty canvas: drag = pan, click without moving = type right there (OneNote behaviour)

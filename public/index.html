@@ -53,15 +53,30 @@
       <button data-lv="h1" class="lvBtn">标题 1</button>
       <button data-lv="h2" class="lvBtn">标题 2</button>
       <button data-lv="h3" class="lvBtn">标题 3</button>
-      <span class="hint">选中文字后点样式切换（按行生效，和 Word 的标题样式一样）· 快捷键 Ctrl+Alt+0/1/2/3</span>
+      <span class="sep"></span>
+      <span class="flabel">颜色</span>
+      <button class="swatch colorBtn" data-color="#d92d20" title="红色" style="background:#d92d20"></button>
+      <button class="swatch colorBtn" data-color="#dc6803" title="橙色" style="background:#dc6803"></button>
+      <button class="swatch colorBtn" data-color="#067647" title="绿色" style="background:#067647"></button>
+      <button class="swatch colorBtn" data-color="#175cd3" title="蓝色" style="background:#175cd3"></button>
+      <button class="swatch colorBtn" data-color="#6941c6" title="紫色" style="background:#6941c6"></button>
+      <button class="swatch colorBtn" data-color="#667085" title="灰色" style="background:#667085"></button>
+      <input type="color" id="colorPick" value="#d92d20" title="自定义颜色"/>
+      <button class="colorBtn" data-color="">默认色</button>
+      <span class="hint">字体/标题按行生效；颜色选中几个字就染几个字 · 快捷键 Ctrl+Alt+0/1/2/3</span>
     </div>
     <div id="viewport"><div id="canvas"></div></div>
   </main>
 </div>
 <div id="ctxNew" class="ctxNew" hidden>
   <div class="ctxTitle">新建 / 打开哪天的纪要？</div>
-  <input type="date" id="ctxDate"/>
-  <div class="ctxBtns"><button id="ctxGo" class="primary">打开</button><button id="ctxCancel">取消</button></div>
+  <div class="calHead">
+    <button id="calPrev" title="上个月">‹</button>
+    <span id="calTitle"></span>
+    <button id="calNext" title="下个月">›</button>
+  </div>
+  <div id="calGrid" class="calGrid"></div>
+  <div class="ctxBtns"><button id="ctxToday" class="primary">打开今天</button><button id="ctxCancel">取消</button></div>
 </div>
 <script src="/app.js"></script>
 </body>

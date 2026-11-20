@@ -64,7 +64,7 @@ async function save(){
   if(!(note.title||'').trim()){ note.title=curBook().kind==='diary'?defaultTitle(date):'未命名页面'; if(document.activeElement!==$('#title')) $('#title').value=note.title; }
   note.elements.forEach(el=>{ if(el.runs&&Object.keys(el.runs).length) el.colors={}; }); // runs supersede legacy colours
   // never persist empty text blocks (e.g. a stray click that was never typed into)
-  note.elements=note.elements.filter(el=>el.type==='image'||el.type==='table'||(el.text||'').trim()!==''||el.id===window._sel);
+  note.elements=note.elements.filter(el=>el.type==='image'||el.type==='table'||el.type==='ink'||(el.text||'').trim()!==''||el.id===window._sel);
   try{ if(!useServer) throw 0; saveInFlight=api('/api/notes/'+date,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(note)}); await saveInFlight; }
   catch{ if(!useServer) localStorage.setItem('notebook:'+date,JSON.stringify(note)); else { markSaved('保存失败：服务端无响应，请确认程序还在运行'); return; } }
   saveInFlight=null;
@@ -308,12 +308,13 @@ function nodeFor(el){
   div.style.left=el.x+'px'; div.style.top=el.y+'px';
   if(isText){ if(el.mw){ div.style.width=el.mw+'px'; } else { div.style.width='max-content'; div.style.maxWidth='900px'; } }
   else{ div.style.width=el.w+'px'; if(el.h) div.style.height=el.h+'px'; }
-  const label=el.type==='image'?'图片':el.type==='todo'?'待办':el.type==='sticky'?'便签':el.type==='table'?'表格':'文字';
+  const label=el.type==='image'?'图片':el.type==='todo'?'待办':el.type==='sticky'?'便签':el.type==='table'?'表格':el.type==='ink'?'绘图':'文字';
   div.innerHTML=`<div class="grip"><span>⠿ ${label}</span>`+
     (el.type==='table'?`<span class="tops"><button data-op="addr">＋行</button><button data-op="delr">－行</button><button data-op="addc">＋列</button><button data-op="delc">－列</button></span>`:'')+
     `<button class="del" title="删除">✕</button></div>`+
-    (el.type==='image'?`<img draggable="false" alt=""/>`:el.type==='table'?`<div class="tblWrap"><table class="tbl"></table></div>`:`<div class="body" contenteditable="true" data-placeholder="在这里输入…"></div>`)+`<div class="resize" title="拖动调整大小；文字块双击此角恢复自动宽度">◢</div>`;
+    (el.type==='image'?`<img draggable="false" alt=""/>`:el.type==='table'?`<div class="tblWrap"><table class="tbl"></table></div>`:el.type==='ink'?`<svg class="inkSvg" viewBox="0 0 ${el.w} ${el.h}" preserveAspectRatio="none"><path d="${inkPath(el.pts||[])}" fill="none" stroke="${el.color||'#d92d20'}" stroke-width="${el.lw||3}" stroke-linecap="round" stroke-linejoin="round"/></svg>`:`<div class="body" contenteditable="true" data-placeholder="在这里输入…"></div>`)+`<div class="resize" title="拖动调整大小；文字块双击此角恢复自动宽度">◢</div>`;
   if(el.type==='image'){ div.querySelector('img').src=el.src; }
+  else if(el.type==='ink'){ div.querySelector('.inkSvg').addEventListener('mousedown',e=>startMove(e,el,div)); }
   else if(el.type==='table'){
     buildTable(div, el);
     div.querySelectorAll('[data-op]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); tableOp(el, div, b.dataset.op); });
@@ -756,6 +757,66 @@ async function deleteNote(d){
   markSaved('已删除');
 }
 $('#delBtn').onclick=()=>deleteNote(date);
+
+// ---- ink drawing (v0.9.0, OneNote-style) --------------------------------------
+// Each finished stroke becomes its own ink element: a smoothed SVG path in a
+// bounding box, so it can be selected, moved, resized and deleted like any
+// other block. Draw mode intercepts canvas mousedowns in the capture phase,
+// so the pen also draws over existing blocks, exactly like OneNote ink.
+function inkPath(pts){
+  if(!pts||!pts.length) return '';
+  if(pts.length<3) return 'M'+pts.map(p=>p[0]+' '+p[1]).join(' L ');
+  let d=`M ${pts[0][0]} ${pts[0][1]}`;
+  for(let i=1;i<pts.length-1;i++){ const mx=Math.round((pts[i][0]+pts[i+1][0])/2*10)/10, my=Math.round((pts[i][1]+pts[i+1][1])/2*10)/10; d+=` Q ${pts[i][0]} ${pts[i][1]} ${mx} ${my}`; }
+  return d+` L ${pts[pts.length-1][0]} ${pts[pts.length-1][1]}`;
+}
+let drawMode=false, penColor='#d92d20', penWidth=3.5, erasing=false;
+function setDrawMode(on){
+  drawMode=on; erasing=false;
+  $('#penBar').hidden=!on;
+  $('#penBtn').classList.toggle('on',on);
+  $('#eraseBtn').classList.remove('on');
+  $('#viewport').classList.toggle('drawing',on);
+}
+$('#penBtn').onclick=()=>setDrawMode(!drawMode);
+$('#penExit').onclick=()=>setDrawMode(false);
+document.querySelectorAll('#penBar .psw').forEach(b=>b.onclick=()=>{ penColor=b.dataset.c; erasing=false; $('#eraseBtn').classList.remove('on'); document.querySelectorAll('#penBar .psw').forEach(x=>x.classList.toggle('on',x===b)); });
+document.querySelectorAll('#penBar .plw').forEach(b=>b.onclick=()=>{ penWidth=parseFloat(b.dataset.lw); document.querySelectorAll('#penBar .plw').forEach(x=>x.classList.toggle('on',x===b)); });
+$('#eraseBtn').onclick=()=>{ erasing=!erasing; $('#eraseBtn').classList.toggle('on',erasing); };
+function finishStroke(pts){
+  if(!pts.length) return;
+  if(pts.length===1) pts.push({x:pts[0].x+0.1, y:pts[0].y});
+  const xs=pts.map(p=>p.x), ys=pts.map(p=>p.y), pad=penWidth+2;
+  const x0=Math.min(...xs)-pad, y0=Math.min(...ys)-pad, x1=Math.max(...xs)+pad, y1=Math.max(...ys)+pad;
+  const el={id:uid(), type:'ink', x:Math.round(x0), y:Math.round(y0), w:Math.max(4,Math.round(x1-x0)), h:Math.max(4,Math.round(y1-y0)), color:penColor, lw:penWidth,
+    pts:pts.map(p=>[Math.round((p.x-x0)*10)/10, Math.round((p.y-y0)*10)/10])};
+  note.elements.push(el); render(); scheduleSave(); select(el.id);
+}
+function eraseAt(clientX, clientY){
+  const p=canvasPos(clientX, clientY);
+  for(let i=note.elements.length-1;i>=0;i--){ const el=note.elements[i];
+    if(el.type==='ink'&&p.x>=el.x-6&&p.x<=el.x+el.w+6&&p.y>=el.y-6&&p.y<=el.y+el.h+6){ note.elements.splice(i,1); render(); scheduleSave(); return; } }
+}
+$('#viewport').addEventListener('mousedown',e=>{
+  if(!drawMode||e.button!==0) return;
+  e.preventDefault(); e.stopPropagation();
+  if(erasing){ eraseAt(e.clientX,e.clientY);
+    const mv=ev=>eraseAt(ev.clientX,ev.clientY);
+    const up=()=>{ removeEventListener('mousemove',mv); removeEventListener('mouseup',up); };
+    addEventListener('mousemove',mv); addEventListener('mouseup',up); return;
+  }
+  const pts=[canvasPos(e.clientX,e.clientY)];
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('class','inkLive'); svg.setAttribute('width','4000'); svg.setAttribute('height','3000');
+  const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+  path.setAttribute('fill','none'); path.setAttribute('stroke',penColor); path.setAttribute('stroke-width',penWidth);
+  path.setAttribute('stroke-linecap','round'); path.setAttribute('stroke-linejoin','round');
+  svg.appendChild(path); $('#canvas').appendChild(svg);
+  const mv=ev=>{ const p=canvasPos(ev.clientX,ev.clientY), l=pts[pts.length-1];
+    if(Math.hypot(p.x-l.x,p.y-l.y)>=2){ pts.push(p); path.setAttribute('d',inkPath(pts.map(q=>[Math.round(q.x*10)/10,Math.round(q.y*10)/10]))); } };
+  const up=()=>{ removeEventListener('mousemove',mv); removeEventListener('mouseup',up); svg.remove(); finishStroke(pts); };
+  addEventListener('mousemove',mv); addEventListener('mouseup',up);
+}, true);
 
 // ---- collections rail (v0.5.0) ----------------------------------------------
 async function refreshBooks(){

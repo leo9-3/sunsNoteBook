@@ -42,6 +42,20 @@ aside{width:280px;flex:0 0 280px;background:#fff;border-right:1px solid #e5e7eb;
 .pageCtx{position:fixed;z-index:120;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 12px 32px rgba(15,23,42,.18);padding:6px;min-width:220px}
 .pageCtx button{display:block;width:100%;text-align:left;padding:8px 10px;border:0;background:none;border-radius:7px;cursor:pointer;font-size:13.5px}
 .pageCtx button:hover{background:#eff6ff}
+.penbar{display:flex;align-items:center;gap:6px;padding:6px 12px;background:#fff7ed;border-bottom:1px solid #f3e2c7;flex-wrap:wrap}
+.penbar[hidden]{display:none}
+.penbar .psw{width:20px;height:20px;border-radius:50%;border:2px solid transparent;padding:0;cursor:pointer}
+.penbar .psw.on{border-color:#111827;box-shadow:0 0 0 2px #fff inset}
+.penbar .plw.on,.penbar #eraseBtn.on{background:#2563eb;color:#fff;border-color:#2563eb}
+#penBtn.on{background:#2563eb;color:#fff;border-color:#2563eb}
+#viewport.drawing{cursor:crosshair}
+.el.ink{background:transparent;border-color:transparent;box-shadow:none}
+.el.ink .inkSvg{position:absolute;inset:0;width:100%;height:100%}
+.el.ink .grip{opacity:0;transition:opacity .15s}
+.el.ink:hover .grip,.el.ink.selected .grip{opacity:1}
+.el.ink .resize{opacity:0}
+.el.ink:hover .resize,.el.ink.selected .resize{opacity:1}
+.inkLive{position:absolute;left:0;top:0;pointer-events:none;z-index:50}
 .pageItem .ptog{flex:0 0 14px;text-align:center;color:#6b7280;font-size:11px;cursor:pointer}
 .pageItem .picon{flex:0 0 auto;font-size:13px}
 aside .primary{width:100%;padding:10px;background:#2563eb;color:#fff;border:0;border-radius:8px;cursor:pointer;font-size:14px}

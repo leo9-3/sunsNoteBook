@@ -42,10 +42,27 @@
       <button data-add="todo">＋ 待办</button>
       <button data-add="table">＋ 表格</button>
       <label class="fileBtn">＋ 图片<input type="file" id="imgInput" accept="image/*" multiple hidden/></label>
+      <button id="penBtn" title="像 OneNote 一样在页面上自由涂鸦">✏️ 画笔</button>
       <span class="sep"></span>
       <button id="zoomOut">－</button><span id="zoomLabel">100%</span><button id="zoomIn">＋</button>
       <button id="fitBtn">回到原点</button>
       <span class="hint">点画布任意空位直接输入 · 编辑文字时粘贴/选图 = 插入文字中 · 拖图片或块顶栏移动 · 拉右下角缩放 · 滚轮上下滚动 · Ctrl+滚轮缩放</span>
+    </div>
+    <div class="penbar" id="penBar" hidden>
+      <span class="flabel">画笔颜色</span>
+      <button class="psw" data-c="#1f2430" style="background:#1f2430" title="黑色"></button>
+      <button class="psw on" data-c="#d92d20" style="background:#d92d20" title="红色"></button>
+      <button class="psw" data-c="#2563eb" style="background:#2563eb" title="蓝色"></button>
+      <button class="psw" data-c="#12b76a" style="background:#12b76a" title="绿色"></button>
+      <button class="psw" data-c="#6941c6" style="background:#6941c6" title="紫色"></button>
+      <span class="flabel">粗细</span>
+      <button class="plw" data-lw="2">细</button>
+      <button class="plw on" data-lw="3.5">中</button>
+      <button class="plw" data-lw="6">粗</button>
+      <span class="sep"></span>
+      <button id="eraseBtn" title="点中或划过一笔即可擦掉">🧽 橡皮擦</button>
+      <button id="penExit">退出画笔</button>
+      <span class="hint">在页面上按住鼠标拖动即可画，画完每一笔都是一个可移动的块</span>
     </div>
     <div class="fmtbar">
       <span class="flabel">字体</span>

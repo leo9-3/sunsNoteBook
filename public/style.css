@@ -5,6 +5,45 @@ header #title{flex:1;padding:8px 10px;border-radius:8px;border:0;font-size:15px}
 .noteItem.treeDay:hover .tdel{opacity:1}
 .layout{display:flex;height:calc(100vh - 53px)}
 aside{width:280px;flex:0 0 280px;background:#fff;border-right:1px solid #e5e7eb;padding:12px;overflow:auto}
+#booksRail{width:92px;flex:0 0 92px;background:#f5f3ff;border-right:1px solid #e5e7eb;display:flex;flex-direction:column;padding:10px 8px;overflow:auto}
+#booksRail .railLabel{font-size:11px;color:#9ca3af;text-align:center;letter-spacing:3px;margin-bottom:6px}
+#bookList{display:flex;flex-direction:column;gap:4px}
+.bookItem{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 4px;border-radius:10px;cursor:pointer;color:#374151}
+.bookItem:hover{background:#ede9fe}
+.bookItem.active{background:#dbeafe;box-shadow:inset 0 0 0 1.5px #60a5fa}
+.bookItem .bic{font-size:20px;line-height:1.1}
+.bookItem .bname{font-size:12px;max-width:78px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bookItem .bdel{position:absolute;top:2px;right:5px;color:#9ca3af;font-size:11px;display:none;cursor:pointer}
+.bookItem:hover .bdel{display:block}
+#bookAdd{margin-top:auto;border:1.5px dashed #c4b5fd;background:transparent;border-radius:10px;padding:8px 0;cursor:pointer;color:#6d28d9;font-size:12.5px;width:100%}
+#noteList .pageItem{display:flex;align-items:center;gap:6px}
+#noteList .pageItem .tt{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#noteList .pageItem small{color:#9ca3af;flex:0 0 auto}
+#oldServerTip{background:#fef2f2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:10px;padding:10px;font-size:12.5px;line-height:1.65;margin-bottom:10px}
+#folderAddBtn{width:100%;padding:9px;margin-top:8px;background:#fff;color:#2563eb;border:1.5px solid #bfdbfe;border-radius:8px;cursor:pointer;font-size:13.5px}
+.folderRow{display:flex;align-items:center;gap:5px;padding:7px 8px;margin-top:8px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;color:#92400e;user-select:none}
+.folderRow .tw{font-weight:400}
+.folderRow .cnt{margin-left:auto;font-weight:400;color:#b45309;font-size:11.5px}
+.folderRow .fact{color:#b45309;padding:0 3px;cursor:pointer;opacity:0;font-weight:400}
+.folderRow:hover .fact{opacity:1}
+.folderRow .fact.fdel{color:#dc2626}
+#noteList .pageItem.inFolder{margin-left:16px}
+.el .edge{position:absolute;z-index:6;opacity:0;border-radius:3px}
+.el:hover .edge{opacity:.55;background:rgba(37,99,235,.45)}
+.el.selected .edge{opacity:1;background:rgba(37,99,235,.45)}
+.el .edge:hover{background:rgba(37,99,235,.85)}
+.el .edge.e{right:-4px;top:6px;bottom:6px;width:7px;cursor:ew-resize}
+.el .edge.w{left:-4px;top:6px;bottom:6px;width:7px;cursor:ew-resize}
+.el .edge.n{top:-4px;left:6px;right:6px;height:7px;cursor:ns-resize}
+.el .edge.s{bottom:-4px;left:6px;right:6px;height:7px;cursor:ns-resize}
+#lightbox{position:fixed;inset:0;background:rgba(0,0,0,.93);z-index:200;display:flex;align-items:center;justify-content:center;cursor:zoom-out}
+#lightbox[hidden]{display:none}
+#lightbox img{max-width:96vw;max-height:96vh;object-fit:contain}
+.pageCtx{position:fixed;z-index:120;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 12px 32px rgba(15,23,42,.18);padding:6px;min-width:220px}
+.pageCtx button{display:block;width:100%;text-align:left;padding:8px 10px;border:0;background:none;border-radius:7px;cursor:pointer;font-size:13.5px}
+.pageCtx button:hover{background:#eff6ff}
+.pageItem .ptog{flex:0 0 14px;text-align:center;color:#6b7280;font-size:11px;cursor:pointer}
+.pageItem .picon{flex:0 0 auto;font-size:13px}
 aside .primary{width:100%;padding:10px;background:#2563eb;color:#fff;border:0;border-radius:8px;cursor:pointer;font-size:14px}
 aside .pick{display:block;margin:12px 0;font-size:13px;color:#6b7280}aside .pick input{display:block;width:100%;margin-top:6px;padding:8px}
 aside #search{width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px}
@@ -41,6 +80,10 @@ aside #search{width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px}
 .calGrid .calDay{text-align:center;font-size:13px;padding:7px 0;border-radius:8px;cursor:pointer;color:#1f2937}
 .calGrid .calDay:hover{background:#eff6ff}
 .calGrid .calDay.today{background:#2563eb;color:#fff;font-weight:700}
+.ctxNew .ctxDivider{border-top:1px solid #eef0f2;margin:10px 0}
+.ctxNew .ctxIns{display:flex;gap:8px;margin-bottom:10px}
+.ctxNew .ctxIns button{flex:1;padding:7px 0;border:1px solid #d1d5db;background:#fff;border-radius:8px;cursor:pointer;font-size:12.5px;color:#374151}
+.ctxNew .ctxIns button:hover{background:#eff6ff;border-color:#93c5fd}
 .ctxNew .ctxBtns{display:flex;gap:8px;margin-top:12px}
 .ctxNew .ctxBtns button{flex:1;padding:8px;border:1px solid #d1d5db;background:#fff;border-radius:8px;cursor:pointer;font-size:13px}
 .ctxNew .ctxBtns button.primary{background:#2563eb;color:#fff;border-color:#2563eb}
@@ -64,5 +107,11 @@ aside #search{width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px}
 .el .body:empty::before{content:attr(data-placeholder);color:#9ca3af;pointer-events:none}
 .el.heading .body{font-size:22px;font-weight:700}.el.sticky{background:#fef9c3}.el.todo .body{font-size:14px}
 .el img{display:block;width:100%;height:calc(100% - 22px);object-fit:contain;border-radius:0 0 10px 10px;-webkit-user-drag:none;user-select:none;cursor:move}
-.el .resize{position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:nwse-resize;color:#9ca3af;opacity:0}
+.el .el .body .imgLn{line-height:0}
+.imgWrap{position:relative;display:inline-block;line-height:0}
+.imgWrap img{display:block;max-width:100%;border-radius:6px}
+.imgWrap.sel img{outline:2px solid #2563eb;outline-offset:1px}
+.imgRz{position:absolute;right:2px;bottom:2px;width:16px;height:16px;font-size:11px;line-height:16px;text-align:center;color:#fff;background:rgba(0,0,0,.45);border-radius:4px;cursor:nwse-resize;opacity:0}
+.imgWrap:hover .imgRz,.imgWrap.sel .imgRz{opacity:1}
+.resize{position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:nwse-resize;color:#9ca3af;opacity:0}
 .el:hover .resize,.el.selected .resize{opacity:1}

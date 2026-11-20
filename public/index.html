@@ -15,12 +15,24 @@
   <button id="exportBtn">导出 JSON</button>
 </header>
 <div class="layout">
+  <nav id="booksRail">
+    <div class="railLabel">合集</div>
+    <div id="bookList"></div>
+    <button id="bookAdd">＋ 合集</button>
+  </nav>
   <aside>
-    <button id="todayBtn" class="primary">＋ 按今天日期新建纪要</button>
-    <label class="pick">选择日期新建 / 打开<input type="date" id="datePick"/></label>
+    <div id="oldServerTip" hidden>⚠ <b>服务端还是旧版本</b>，合集用不了，保存/删除也会不正常。多半是旧程序还在运行：请用安装文件夹里的 <b>stop-windows.bat</b> 把旧程序彻底关掉，再重新打开程序，然后刷新本页。</div>
+    <div id="diaryTools">
+      <button id="todayBtn" class="primary">＋ 按今天日期新建纪要</button>
+      <label class="pick">选择日期新建 / 打开<input type="date" id="datePick"/></label>
+    </div>
+    <div id="pageTools" hidden>
+      <button id="pageNewBtn" class="primary">＋ 新建页面</button>
+      <button id="folderAddBtn">＋ 新建文件夹</button>
+    </div>
     <input id="search" placeholder="搜索日期或标题…"/>
     <div id="noteList"></div>
-    <p class="hint">内网版：数据保存在服务器的本地数据库 <code>data/notebook.db</code>，不连外网。无服务器打开时自动用浏览器本地存储演示。</p>
+    <p class="hint">内网版：数据保存在服务器的本地数据库 <code>data/notebook.db</code>，不连外网。无服务器打开时自动用浏览器本地存储演示。<br/>💡 关掉本页面后，程序会在几秒后自动退出，不用再点 stop-windows.bat。</p>
   </aside>
   <main>
     <div class="toolbar">
@@ -33,7 +45,7 @@
       <span class="sep"></span>
       <button id="zoomOut">－</button><span id="zoomLabel">100%</span><button id="zoomIn">＋</button>
       <button id="fitBtn">回到原点</button>
-      <span class="hint">点画布任意空位直接输入 · 粘贴/拖入图片 · 拖图片或块顶栏移动 · 拉右下角缩放 · 按住空白拖动画布平移</span>
+      <span class="hint">点画布任意空位直接输入 · 编辑文字时粘贴/选图 = 插入文字中 · 拖图片或块顶栏移动 · 拉右下角缩放 · 滚轮上下滚动 · Ctrl+滚轮缩放</span>
     </div>
     <div class="fmtbar">
       <span class="flabel">字体</span>
@@ -70,14 +82,23 @@
 </div>
 <div id="ctxNew" class="ctxNew" hidden>
   <div class="ctxTitle">新建 / 打开哪天的纪要？</div>
-  <div class="calHead">
-    <button id="calPrev" title="上个月">‹</button>
-    <span id="calTitle"></span>
-    <button id="calNext" title="下个月">›</button>
+  <div id="calWrap">
+    <div class="calHead">
+      <button id="calPrev" title="上个月">‹</button>
+      <span id="calTitle"></span>
+      <button id="calNext" title="下个月">›</button>
+    </div>
+    <div id="calGrid" class="calGrid"></div>
   </div>
-  <div id="calGrid" class="calGrid"></div>
-  <div class="ctxBtns"><button id="ctxToday" class="primary">打开今天</button><button id="ctxCancel">取消</button></div>
+  <div class="ctxDivider"></div>
+  <div class="ctxIns"><button id="ctxInsText">＋ 在右键处插入文本框</button><button id="ctxInsImg">＋ 在右键处插入图片</button></div>
+  <div class="ctxBtns"><button id="ctxNewPage" class="primary" hidden>＋ 新建页面</button><button id="ctxToday" class="primary">打开今天</button><button id="ctxCancel">取消</button></div>
 </div>
+<div id="pageCtx" class="pageCtx" hidden>
+  <button id="pcSibling">＋ 新建同级笔记</button>
+  <button id="pcChild">＋ 新建下级笔记（本级变文件夹）</button>
+</div>
+<div id="lightbox" hidden><img id="lightboxImg" alt=""/></div>
 <script src="/app.js"></script>
 </body>
 </html>

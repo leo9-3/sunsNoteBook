@@ -5,38 +5,69 @@
 const $=s=>document.querySelector(s);
 const today=()=>{const d=new Date();return d.toISOString().slice(0,10)};
 let date=today(), note={date,title:'',elements:[]}, zoom=1, pan={x:20,y:20}, saveTimer=null, useServer=true;
+// collections (v0.5.0): the built-in 'diary' book holds one note per date; free
+// books hold titled pages (pg_* ids) — the left rail switches between them
+let books=[{id:'diary',name:'日记',kind:'diary'}], bookId=localStorage.getItem('nb-book')||'diary';
+const curBook=()=>books.find(b=>b.id===bookId)||books[0];
+// server capability mode, decided once at boot by detectMode():
+//   'new' = current server, 'old' = a pre-v0.5.0 server still running (it has
+//   /api/notes but no /api/books), 'none' = no server at all (file:// demo).
+// localStorage may ONLY be used in 'none' mode — falling back to it while an
+// old server answers produced the v0.5.0 hybrid bug: saves/deletes went to
+// localStorage while lists came from the server, so deleted diary notes stayed
+// in the tree and new books/pages never showed up.
+let serverMode='new', oldServer=false;
+const lsOK=()=>serverMode==='none';
+async function detectMode(){
+  try{ await api('/api/books'); serverMode='new'; }
+  catch{ try{ await api('/api/notes'); serverMode='old'; }catch{ serverMode='none'; } }
+  useServer=serverMode!=='none'; oldServer=serverMode==='old';
+}
+let saveInFlight=null; const tombstones=new Set();
+const isDateId=s=>/^\d{4}-\d{2}-\d{2}$/.test(s||'');
+function esc(s){ return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 const uid=()=>Math.random().toString(36).slice(2,10);
 
 async function api(path,opts){ const r=await fetch(path,opts); if(!r.ok) throw new Error(r.status); return r.json(); }
 async function loadNote(d, opts={}){
   const wasOpen=(date===d);
-  date=d; expandFor(d);
+  date=d; if(curBook().kind==='diary') expandFor(d);
   let fresh=false;
   try{ note=await api('/api/notes/'+d); fresh=!note.updatedAt; }
-  catch{ useServer=false; const raw=localStorage.getItem('notebook:'+d); fresh=!raw; note=JSON.parse(raw||JSON.stringify({date:d,title:'',elements:[]})); }
+  catch{ const raw=lsOK()?localStorage.getItem('notebook:'+d):null; fresh=!raw; note=JSON.parse(raw||JSON.stringify({date:d,title:'',elements:[]})); }
   if(!note.elements) note.elements=[];
+  if(note.folder==null) note.folder='';
+  if(note.parent==null) note.parent='';
+  if(note.folder) expandedFolders.add(bookId+':'+note.folder); // opening a page expands its folder once; the user can still collapse it afterwards
+  if(note.parent){ let p=note.parent, guard=0; while(p&&guard++<20){ expandedPages.add(p); const pn=pageCache.get(p); p=pn?(pn.parent||''):''; } }
+  tombstones.delete(d);
+  note.id=d; note.book=bookId; if(isDateId(d)) note.date=d;
   $('#title').value=note.title||''; render(); refreshList();
+  const label=curBook().kind==='diary'?d:'页面';
   if(opts.create&&fresh){
-    // explicit "new note" click: persist at once so the tree shows the new entry,
+    // explicit "new note" click: persist at once so the list shows the new entry,
     // and put the cursor in the title box — without this the button looked dead
-    await save(); markSaved('已新建 '+d+'（默认名：'+note.title+'，可在顶部改名）');
+    await save(); markSaved('已新建 '+label+'（默认名：'+note.title+'，可在顶部改名）');
     $('#title').focus(); $('#title').select();
   } else if(opts.create&&wasOpen){
-    markSaved(d+' 的纪要已经在打开状态');
+    markSaved(label+'已经在打开状态');
     $('#title').focus(); $('#title').select();
-  } else markSaved('已打开 '+d);
+  } else markSaved('已打开 '+label);
 }
 const defaultTitle=d=>{ const dt=new Date(d+'T00:00:00'); return dt.getDate()+'日 星期'+'日一二三四五六'[dt.getDay()]; };
 async function save(){
-  markSaved('保存中…'); note.title=$('#title').value; note.date=date;
-  // every new note gets a default name like "17日 星期二" (kalo's rule); a name the
-  // user typed always wins, and clearing a name back to blank restores the default
-  if(!(note.title||'').trim()){ note.title=defaultTitle(date); if(document.activeElement!==$('#title')) $('#title').value=note.title; }
+  if(tombstones.has(date)) return; // deleted while a save was pending — never resurrect it
+  markSaved('保存中…'); note.title=$('#title').value; note.id=date; note.book=bookId; if(isDateId(date)) note.date=date;
+  // every new diary note gets a default name like "17日 星期二" (kalo's rule); a name
+  // the user typed always wins, and clearing a name back to blank restores the
+  // default. Free pages fall back to 未命名页面 instead of a date-based name.
+  if(!(note.title||'').trim()){ note.title=curBook().kind==='diary'?defaultTitle(date):'未命名页面'; if(document.activeElement!==$('#title')) $('#title').value=note.title; }
   note.elements.forEach(el=>{ if(el.runs&&Object.keys(el.runs).length) el.colors={}; }); // runs supersede legacy colours
   // never persist empty text blocks (e.g. a stray click that was never typed into)
   note.elements=note.elements.filter(el=>el.type==='image'||el.type==='table'||(el.text||'').trim()!==''||el.id===window._sel);
-  try{ if(!useServer) throw 0; await api('/api/notes/'+date,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(note)}); }
-  catch{ localStorage.setItem('notebook:'+date,JSON.stringify(note)); }
+  try{ if(!useServer) throw 0; saveInFlight=api('/api/notes/'+date,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(note)}); await saveInFlight; }
+  catch{ if(!useServer) localStorage.setItem('notebook:'+date,JSON.stringify(note)); else { markSaved('保存失败：服务端无响应，请确认程序还在运行'); return; } }
+  saveInFlight=null;
   markSaved('已保存 '+new Date().toLocaleTimeString()); refreshList();
 }
 const scheduleSave=()=>{ clearTimeout(saveTimer); saveTimer=setTimeout(save,500); };
@@ -48,11 +79,51 @@ const expandedKeys=new Set();
 function expandFor(d){ if(!d) return; const p=String(d).split('-'); if(p.length<2) return; expandedKeys.add(p[0]); expandedKeys.add(p[0]+'-'+p[1]); }
 async function refreshList(){
   let list=[];
-  try{ list=await api('/api/notes'); }catch{ list=Object.keys(localStorage).filter(k=>k.startsWith('notebook:')).map(k=>{const n=JSON.parse(localStorage.getItem(k));return{date:n.date,title:n.title,count:(n.elements||[]).length}}); }
-  list.sort((a,b)=>String(a.date).localeCompare(String(b.date))); // chronological: oldest first, newest last — tree groups inherit this order
+  try{ list=await api('/api/notes'); }catch{ list=lsOK()?Object.keys(localStorage).filter(k=>k.startsWith('notebook:')&&k!=='notebook:books'&&k!=='notebook:folders').map(k=>{ try{ const n=JSON.parse(localStorage.getItem(k)); return {id:n.id||n.date, book:n.book||'diary', date:n.date||null, folder:n.folder||'', parent:n.parent||'', title:n.title, updatedAt:n.updatedAt||null, count:(n.elements||[]).length}; }catch{ return null; } }).filter(Boolean):[]; }
   const q=($('#search').value||'').toLowerCase();
-  const filtered=list.filter(n=>!q||n.date.includes(q)||(n.title||'').toLowerCase().includes(q));
   const box=$('#noteList');
+  const mine=list.filter(n=>(n.book||'diary')===bookId);
+  if(curBook().kind!=='diary'){
+    // free book: folders (collapsible) + a page tree — a page can parent other
+    // pages (right-click -> new child note) and then renders like a folder
+    await refreshFolders();
+    pageCache.clear(); mine.forEach(n=>pageCache.set(n.id,n));
+    if(q){
+      const hits=mine.filter(n=>(n.title||'').toLowerCase().includes(q)).sort((a,b)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')));
+      if(!hits.length){ box.innerHTML='<p class="hint">没有符合搜索的页面。</p>'; return; }
+      box.innerHTML=hits.map(n=>pageRowHtml(n,0,false,false)).join('');
+      wirePageRows(box); return;
+    }
+    const byParent=new Map();
+    mine.forEach(n=>{ const p=n.parent||''; if(!byParent.has(p)) byParent.set(p,[]); byParent.get(p).push(n); });
+    const inMine=new Set(mine.map(n=>n.id));
+    const kidsOf=n=>(byParent.get(n.id)||[]).slice().sort((a,b)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')));
+    const renderNodes=(nodes,depth)=>nodes.map(n=>{
+      const ch=kidsOf(n), has=ch.length>0, open=expandedPages.has(n.id);
+      let h=pageRowHtml(n,depth,has,open);
+      if(has&&open) h+=renderNodes(ch,depth+1);
+      return h;
+    }).join('');
+    const topInGroup=g=>mine.filter(n=>(n.folder||'')===g&&(!(n.parent||'')||!inMine.has(n.parent))).sort((a,b)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')));
+    const names=[...new Set([...folders, ...mine.map(n=>n.folder||'').filter(f=>f)])].sort((a,b)=>a.localeCompare(b,'zh'));
+    let html='';
+    for(const f of names){
+      const key=bookId+':'+f, open=expandedFolders.has(key);
+      const cnt=mine.filter(n=>(n.folder||'')===f).length;
+      html+=`<div class="folderRow" data-fld="${esc(f)}" title="单击展开/收起 · 双击改名"><span class="tw">${open?'▾':'▸'}</span>📁 ${esc(f)}<span class="cnt">${cnt} 页</span><span class="fact" data-fadd="${esc(f)}" title="在这个文件夹里新建页面">＋</span><span class="fact fdel" data-fdel="${esc(f)}" title="删除文件夹（页面移回根目录）">✕</span></div>`;
+      if(open) html+=renderNodes(topInGroup(f),1);
+    }
+    html+=renderNodes(topInGroup(''),0);
+    if(!mine.length&&!names.length){ box.innerHTML='<p class="hint">这个合集还没有页面，点上面新建一页，或先建个文件夹分类。</p>'; return; }
+    box.innerHTML=html;
+    box.querySelectorAll('.folderRow').forEach(r=>{ r.onclick=()=>{ const key=bookId+':'+r.dataset.fld; expandedFolders.has(key)?expandedFolders.delete(key):expandedFolders.add(key); refreshList(); }; r.ondblclick=()=>renameFolder(r.dataset.fld); });
+    box.querySelectorAll('[data-fadd]').forEach(x=>x.onclick=e=>{ e.stopPropagation(); createPage(x.dataset.fadd); });
+    box.querySelectorAll('[data-fdel]').forEach(x=>x.onclick=e=>{ e.stopPropagation(); deleteFolder(x.dataset.fdel); });
+    wirePageRows(box);
+    return;
+  }
+  list=mine.sort((a,b)=>String(a.date).localeCompare(String(b.date))); // chronological: oldest first, newest last — tree groups inherit this order
+  const filtered=list.filter(n=>!q||n.date.includes(q)||(n.title||'').toLowerCase().includes(q));
   if(!filtered.length){ box.innerHTML='<p class="hint">还没有纪要，点上面新建今天的。</p>'; return; }
   if(!expandedKeys.size){ expandFor(today()); expandFor(date); }
   const years=new Map();
@@ -115,6 +186,24 @@ function renderBody(b, el){
   }
   el.text.split('\n').forEach((t,i)=>{
     const d=document.createElement('div');
+    const im=/^\{\{img:([a-z0-9]+)\}\}$/.exec(t);
+    if(im&&el.imgs&&el.imgs[im[1]]){ // inline image line (v0.4.0): an atomic island inside the text
+      const meta=el.imgs[im[1]];
+      d.className='ln imgLn'; d.contentEditable='false';
+      const wrap=document.createElement('span'); wrap.className='imgWrap';
+      const img=document.createElement('img'); img.src=meta.src; img.dataset.iid=im[1]; img.draggable=false; img.style.width=(meta.w||420)+'px';
+      const rz=document.createElement('span'); rz.className='imgRz'; rz.textContent='◢'; rz.title='拖动调整图片宽度';
+      wrap.appendChild(img); wrap.appendChild(rz); d.appendChild(wrap);
+      wrap.addEventListener('mousedown',e=>{ e.stopPropagation(); b.querySelectorAll('.imgWrap.sel').forEach(w=>w.classList.remove('sel')); wrap.classList.add('sel'); });
+      wrap.addEventListener('dblclick',e=>{ e.preventDefault(); e.stopPropagation(); openLightbox(meta.src); });
+      rz.addEventListener('mousedown',e=>{ e.preventDefault(); e.stopPropagation();
+        const sx=e.clientX, ow=meta.w||420;
+        const mv=ev=>{ meta.w=Math.max(60,Math.min(1000,Math.round(ow+(ev.clientX-sx)/zoom))); img.style.width=meta.w+'px'; };
+        const up=()=>{ removeEventListener('mousemove',mv); removeEventListener('mouseup',up); scheduleSave(); };
+        addEventListener('mousemove',mv); addEventListener('mouseup',up); });
+      b.appendChild(d);
+      return;
+    }
     d.className='ln'+(el.marks&&el.marks[i]?' lv-'+el.marks[i]:'');
     if(el.fonts&&el.fonts[i]) d.style.fontFamily=el.fonts[i];
     renderLineContent(d, t, el.runs&&el.runs[i]);
@@ -176,6 +265,8 @@ function readRich(b, el){
     String(txt).replace(/\r\n?/g,'\n').split('\n').forEach(part=>lines.push(part));
   };
   const pushLine=div=>{
+    const im=div.querySelector('img[data-iid]');
+    if(im){ lines.push('{{img:'+im.dataset.iid+'}}'); return; } // inline image line folds back to its token
     const ex=extractLine(div);
     String(ex.text).replace(/\r\n?/g,'\n').split('\n').forEach((part,j)=>{
       const i=lines.length; lines.push(part);
@@ -234,14 +325,20 @@ function nodeFor(el){
     // together with no separator — that merged multi-line notes into one blob (v0.2.4)
     b.oninput=()=>{ readRich(b, el); scheduleSave(); };
     // clicking into text edits it — it must NOT start a move/pan
-    b.onmousedown=e=>e.stopPropagation();
+    b.onmousedown=e=>{ e.stopPropagation(); if(!e.target.closest('.imgWrap')) b.querySelectorAll('.imgWrap.sel').forEach(w=>w.classList.remove('sel')); };
+    // a selected inline image is deleted with Delete/Backspace (Word behaviour)
+    b.onkeydown=e=>{
+      if(e.key!=='Delete'&&e.key!=='Backspace') return;
+      const sel=b.querySelector('.imgWrap.sel'); if(!sel) return;
+      e.preventDefault(); removeInlineImage(b, el, sel);
+    };
     // an empty text block that loses focus disappears again (OneNote behaviour)
     b.onblur=()=>{ setTimeout(()=>{ if(el.type!=='todo' && el.type!=='sticky' && (el.text||'').trim()===''){ note.elements=note.elements.filter(x=>x.id!==el.id); render(); scheduleSave(); } },150); };
   }
   div.querySelector('.grip .del').onclick=()=>{ note.elements=note.elements.filter(x=>x.id!==el.id); render(); scheduleSave(); };
   div.querySelector('.grip').onmousedown=e=>startMove(e,el,div);
   // images: drag the image itself to move it (native HTML drag is disabled, so no copy/ghost)
-  if(el.type==='image'){ div.querySelector('img').onmousedown=e=>startMove(e,el,div); }
+  if(el.type==='image'){ const im=div.querySelector('img'); im.onmousedown=e=>startMove(e,el,div); im.ondblclick=e=>{ e.stopPropagation(); openLightbox(el.src); }; }
   const rz=div.querySelector('.resize'); if(rz){
     rz.onmousedown=e=>{ e.preventDefault(); e.stopPropagation(); const sx=e.clientX,sy=e.clientY,ow=el.w,oh=el.h||div.offsetHeight,owT=el.mw||div.offsetWidth;
       const mv=ev=>{
@@ -257,6 +354,34 @@ function nodeFor(el){
       addEventListener('mousemove',mv); addEventListener('mouseup',up); };
     if(isText) rz.ondblclick=e=>{ e.stopPropagation(); el.mw=null; render(); scheduleSave(); };
   }
+  // edge resize (v0.8.0): drag a side to grow the box in that one direction —
+  // the corner above keeps doing both axes at once. Text blocks resize by
+  // width only (their height follows the content), so they get left/right
+  // edges; image blocks get all four.
+  if(isText||el.type==='image'){
+    (isText?['e','w']:['e','w','n','s']).forEach(m=>{
+      const ed=document.createElement('div'); ed.className='edge '+m; ed.title='拖动边框调整大小';
+      ed.onmousedown=e=>{ e.preventDefault(); e.stopPropagation(); select(el.id);
+        const sx=e.clientX, sy=e.clientY, ox=el.x, oy=el.y, ow=el.w||div.offsetWidth, oh=el.h||div.offsetHeight, owT=el.mw||div.offsetWidth;
+        const mv=ev=>{ const dx=(ev.clientX-sx)/zoom, dy=(ev.clientY-sy)/zoom;
+          if(isText){
+            if(m==='e') el.mw=Math.max(80,Math.round(owT+dx));
+            else { const nw=Math.max(80,Math.round(owT-dx)); el.x=Math.round(ox+(owT-nw)); el.mw=nw; }
+            div.style.left=el.x+'px'; div.style.width=el.mw+'px'; div.style.maxWidth='none';
+          } else {
+            if(m==='e') el.w=Math.max(60,Math.round(ow+dx));
+            if(m==='w'){ const nw=Math.max(60,Math.round(ow-dx)); el.x=Math.round(ox+(ow-nw)); el.w=nw; }
+            if(m==='s') el.h=Math.max(36,Math.round(oh+dy));
+            if(m==='n'){ const nh=Math.max(36,Math.round(oh-dy)); el.y=Math.round(oy+(oh-nh)); el.h=nh; }
+            div.style.left=el.x+'px'; div.style.top=el.y+'px'; div.style.width=el.w+'px'; div.style.height=el.h+'px';
+          }
+        };
+        const up=()=>{ removeEventListener('mousemove',mv); removeEventListener('mouseup',up); scheduleSave(); };
+        addEventListener('mousemove',mv); addEventListener('mouseup',up);
+      };
+      div.appendChild(ed);
+    });
+  }
   div.onmousedown=()=>select(el.id);
   return div;
 }
@@ -266,8 +391,62 @@ function addEl(type,x,y,extra={}){ const el={id:uid(),type,x:Math.round(x),y:Mat
 function typeAt(p){ const el=addEl('text',p.x,p.y); select(el.id); focusBody(el); return el; }
 
 document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{ const el=addEl(b.dataset.add, 80+Math.random()*120 - pan.x/zoom, 80+Math.random()*80 - pan.y/zoom); select(el.id); if(el.type==='table'){ const td=document.querySelector(`[data-id="${el.id}"] td`); if(td) td.focus(); } else if(el.type!=='image') focusBody(el); });
-$('#imgInput').onchange=e=>{ [...e.target.files].forEach((f,i)=>{ const r=new FileReader(); r.onload=()=>addEl('image',120+i*30,120+i*30,{src:r.result}); r.readAsDataURL(f); }); e.target.value=''; };
-addEventListener('paste',e=>{ const item=[...(e.clipboardData||[]).items||[]].find(i=>i.type.startsWith('image/')); if(item){ const r=new FileReader(); r.onload=()=>addEl('image',140,140,{src:r.result}); r.readAsDataURL(item.getAsFile()); }});
+// ---- inline images inside text blocks (v0.4.0) ------------------------------
+// A text line whose whole content is {{img:<id>}} renders el.imgs[id] inline, so
+// pictures sit inside the text flow (OneNote-style) instead of floating on top.
+function shiftStyles(el, from, delta){
+  ['marks','fonts'].forEach(k=>{ if(!el[k]) return; const o={}; Object.keys(el[k]).forEach(i=>{ const n=+i; o[n>=from?n+delta:n]=el[k][i]; }); el[k]=o; });
+  if(el.runs){ const o={}; Object.keys(el.runs).forEach(i=>{ const n=+i; o[n>=from?n+delta:n]=el.runs[i]; }); el.runs=o; }
+}
+function dropLineStyles(el, li){ ['marks','fonts','runs'].forEach(k=>{ if(el[k]) delete el[k][li]; }); }
+function insertInlineImage(b, el, src, forceLine){
+  readRich(b, el);
+  let li=(forceLine!=null)?forceLine:0;
+  if(forceLine==null&&fmtCtx&&fmtCtx.body===b&&fmtCtx.range) li=boundaryLine(b, fmtCtx.range.startContainer, fmtCtx.range.startOffset, false);
+  const lines=(el.text||'').split('\n');
+  li=Math.max(0, Math.min(li, lines.length-1));
+  const id=uid();
+  (el.imgs=el.imgs||{})[id]={src, w:420};
+  const token='{{img:'+id+'}}';
+  if((lines[li]||'').trim()===''){ dropLineStyles(el, li); lines[li]=token; }
+  else { lines.splice(li+1,0,token); shiftStyles(el, li+1, 1); }
+  el.text=lines.join('\n');
+  renderBody(b, el); scheduleSave();
+  return true;
+}
+function removeInlineImage(b, el, wrap){
+  readRich(b, el);
+  const lineDiv=wrap.closest('.ln'); const li=[...b.children].indexOf(lineDiv);
+  if(li<0) return;
+  const lines=el.text.split('\n');
+  const m=/^\{\{img:([a-z0-9]+)\}\}$/.exec(lines[li]||'');
+  if(m&&el.imgs) delete el.imgs[m[1]];
+  dropLineStyles(el, li);
+  lines.splice(li,1); if(!lines.length) lines.push('');
+  el.text=lines.join('\n'); shiftStyles(el, li+1, -1);
+  renderBody(b, el); scheduleSave();
+}
+function editingTextTarget(allowSelected){
+  if(fmtCtx&&fmtCtx.body&&document.contains(fmtCtx.body)){
+    const holder=fmtCtx.body.closest('.el'); const el=holder&&note.elements.find(x=>x.id===holder.dataset.id);
+    if(el&&(el.type==='text'||el.type==='heading')) return {b:fmtCtx.body, el};
+  }
+  if(allowSelected&&window._sel){
+    const el=note.elements.find(x=>x.id===window._sel);
+    if(el&&(el.type==='text'||el.type==='heading')){ const b=document.querySelector(`[data-id="${el.id}"] .body`); if(b) return {b, el}; }
+  }
+  return null;
+}
+function viewCenter(){ const r=$('#viewport').getBoundingClientRect(); return canvasPos(r.left+r.width/2, r.top+r.height/2); }
+let pendingPoint=null; // canvas point from the right-click "insert image here"
+function placeImage(src, allowSelected){
+  const t=editingTextTarget(allowSelected);
+  if(t&&insertInlineImage(t.b, t.el, src)) return;
+  const p=pendingPoint||viewCenter(); pendingPoint=null;
+  addEl('image', Math.round(p.x), Math.round(p.y), {src});
+}
+$('#imgInput').onchange=e=>{ [...e.target.files].forEach(f=>{ const r=new FileReader(); r.onload=()=>placeImage(r.result, true); r.readAsDataURL(f); }); e.target.value=''; };
+addEventListener('paste',e=>{ const item=[...(e.clipboardData||[]).items||[]].find(i=>i.type.startsWith('image/')); if(item){ const r=new FileReader(); r.onload=()=>placeImage(r.result, false); r.readAsDataURL(item.getAsFile()); }});
 // Ctrl+S / Cmd+S saves the note itself — never the browser's "save webpage" dialog
 addEventListener('keydown',e=>{
   if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey&&e.key.toLowerCase()==='s'){ e.preventDefault(); clearTimeout(saveTimer); save(); }
@@ -465,7 +644,18 @@ $('#viewport').addEventListener('drop',e=>{
   const files=[...(e.dataTransfer.files||[])].filter(f=>f.type.startsWith('image/'));
   if(!files.length) return; // internal drags carry no Files — ignore them so nothing duplicates
   const p=canvasPos(e.clientX,e.clientY);
-  files.forEach((f,i)=>{ const r=new FileReader(); r.onload=()=>addEl('image',p.x+i*24,p.y+i*24,{src:r.result}); r.readAsDataURL(f); });
+  const dropBody=e.target.closest?e.target.closest('.el .body'):null;
+  files.forEach((f,i)=>{ const r=new FileReader(); r.onload=()=>{
+    if(dropBody){ // dropped onto a text block: embed at the nearest line instead of floating
+      const holder=dropBody.closest('.el'); const el=holder&&note.elements.find(x=>x.id===holder.dataset.id);
+      if(el&&(el.type==='text'||el.type==='heading')){
+        const divs=[...dropBody.children]; let li=divs.length-1;
+        for(let j=0;j<divs.length;j++){ if(e.clientY<divs[j].getBoundingClientRect().bottom){ li=j; break; } }
+        insertInlineImage(dropBody, el, r.result, li); return;
+      }
+    }
+    addEl('image',p.x+i*24,p.y+i*24,{src:r.result});
+  }; r.readAsDataURL(f); });
 });
 // right-click on blank areas (canvas or the sidebar's empty space) pops a
 // centred calendar to create/open a note for any day (v0.2.7; centred inline
@@ -488,6 +678,8 @@ function renderCal(){
   $('#calGrid').querySelectorAll('.calDay').forEach(el=>el.onclick=()=>{ hideCtxNew(); loadNote(el.dataset.d,{create:true}); });
 }
 function showCtxNew(){
+  const diary=curBook().kind==='diary';
+  $('#calWrap').hidden=!diary; $('#ctxToday').hidden=!diary; $('#ctxNewPage').hidden=diary;
   const n=new Date(); calView={y:n.getFullYear(), m:n.getMonth()};
   renderCal(); ctxNew.hidden=false;
 }
@@ -495,14 +687,18 @@ function hideCtxNew(){ ctxNew.hidden=true; }
 $('#calPrev').onclick=()=>{ calView.m--; if(calView.m<0){ calView.m=11; calView.y--; } renderCal(); };
 $('#calNext').onclick=()=>{ calView.m++; if(calView.m>11){ calView.m=0; calView.y++; } renderCal(); };
 $('#ctxToday').onclick=()=>{ hideCtxNew(); loadNote(today(),{create:true}); };
+$('#ctxNewPage').onclick=()=>{ hideCtxNew(); createPage(); };
 $('#ctxCancel').onclick=hideCtxNew;
+let ctxPoint=null; // canvas coords of the right-click, for "insert here" (v0.4.0)
+$('#ctxInsText').onclick=()=>{ hideCtxNew(); const p=ctxPoint||viewCenter(); const el=addEl('text', Math.round(p.x), Math.round(p.y)); select(el.id); focusBody(el); };
+$('#ctxInsImg').onclick=()=>{ hideCtxNew(); pendingPoint=ctxPoint; $('#imgInput').click(); };
 $('#viewport').addEventListener('contextmenu',e=>{
   if(e.target.id!=='viewport'&&e.target.id!=='canvas') return; // blank canvas only
-  e.preventDefault(); showCtxNew();
+  e.preventDefault(); ctxPoint=canvasPos(e.clientX,e.clientY); showCtxNew();
 });
 document.querySelector('aside').addEventListener('contextmenu',e=>{
   if(e.target.closest('button,input,select,textarea,.noteItem,.treeRow')) return;
-  e.preventDefault(); showCtxNew();
+  e.preventDefault(); ctxPoint=viewCenter(); showCtxNew();
 });
 document.addEventListener('mousedown',e=>{ if(!ctxNew.hidden&&!e.target.closest('#ctxNew')) hideCtxNew(); });
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') hideCtxNew(); });
@@ -516,6 +712,21 @@ $('#viewport').addEventListener('mousedown',e=>{
     if(!moved) typeAt(canvasPos(ev.clientX,ev.clientY)); };
   addEventListener('mousemove',mv); addEventListener('mouseup',up);
 });
+// mouse wheel scrolls the page up/down (v0.4.0, OneNote behaviour); Ctrl+wheel zooms at the cursor
+function clampPan(){
+  const vw=$('#viewport').clientWidth, vh=$('#viewport').clientHeight;
+  pan.x=Math.max(Math.min(60, vw-4000*zoom-40), Math.min(60, pan.x));
+  pan.y=Math.max(Math.min(60, vh-3000*zoom-40), Math.min(60, pan.y));
+}
+$('#viewport').addEventListener('wheel',e=>{
+  e.preventDefault();
+  if(e.ctrlKey){
+    const f=e.deltaY<0?1.08:1/1.08, nz=Math.max(.3,Math.min(2,zoom*f));
+    const r=$('#viewport').getBoundingClientRect(), cx=e.clientX-r.left, cy=e.clientY-r.top;
+    pan.x=cx-(cx-pan.x)*(nz/zoom); pan.y=cy-(cy-pan.y)*(nz/zoom); zoom=nz;
+  } else { pan.y-=e.deltaY; pan.x-=e.deltaX; }
+  clampPan(); applyTransform();
+},{passive:false});
 $('#zoomIn').onclick=()=>{zoom=Math.min(2,zoom*1.15);applyTransform()}; $('#zoomOut').onclick=()=>{zoom=Math.max(.3,zoom/1.15);applyTransform()};
 $('#fitBtn').onclick=()=>{pan={x:20,y:20};zoom=1;applyTransform()};
 $('#todayBtn').onclick=()=>loadNote(today(),{create:true});
@@ -526,15 +737,177 @@ $('#exportBtn').onclick=()=>{ const a=document.createElement('a'); a.href=URL.cr
 async function deleteNote(d){
   clearTimeout(saveTimer); // a pending autosave must not resurrect the note
   const t=(d===date&&note.title)?'「'+note.title+'」':'';
-  if(!confirm('确定删除 '+d+' '+t+'这篇纪要吗？删除后无法恢复。')) return;
+  if(!confirm('确定删除 '+(isDateId(d)?d+' ':'')+t+'这一篇吗？删除后无法恢复。')) return;
+  if(saveInFlight){ try{ await saveInFlight; }catch{} saveInFlight=null; } // let a running save land first, then delete wins
+  tombstones.add(d);
   try{ if(!useServer) throw 0; await api('/api/notes/'+d,{method:'DELETE'}); }
-  catch{ localStorage.removeItem('notebook:'+d); }
+  catch{ if(!useServer) localStorage.removeItem('notebook:'+d); else { tombstones.delete(d); markSaved('删除失败：服务端无响应'); return; } }
   if(d===date){
     let list=[]; try{ list=await api('/api/notes'); }catch{ list=[]; }
-    const next=list.find(x=>x.date>d)||[...list].reverse().find(x=>x.date<d);
-    await loadNote(next?next.date:today());
+    const mine=list.filter(x=>(x.book||'diary')===bookId);
+    if(curBook().kind==='diary'){
+      const next=mine.find(x=>x.date>d)||[...mine].reverse().find(x=>x.date<d);
+      await loadNote(next?next.id:today());
+    } else {
+      mine.sort((a,b)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')));
+      if(mine.length) await loadNote(mine[0].id); else await createPage();
+    }
   } else refreshList();
-  markSaved('已删除 '+d);
+  markSaved('已删除');
 }
 $('#delBtn').onclick=()=>deleteNote(date);
-loadNote(today());
+
+// ---- collections rail (v0.5.0) ----------------------------------------------
+async function refreshBooks(){
+  if(serverMode==='new'){ try{ books=await api('/api/books'); }catch{} }
+  else if(serverMode==='old'){ books=[{id:'diary',name:'日记',kind:'diary'}]; bookId='diary'; }
+  else { try{ const bs=JSON.parse(localStorage.getItem('notebook:books')||'null'); if(Array.isArray(bs)&&bs.length) books=bs; }catch{} }
+  if(!books.find(b=>b.id===bookId)) bookId='diary';
+  const box=$('#bookList');
+  box.innerHTML=books.map(b=>`<div class="bookItem ${b.id===bookId?'active':''}" data-bk="${b.id}" title="${b.kind==='diary'?'按日期的日记合集':'自由页面合集'} · 单击切换 · 双击改名"><span class="bic">${b.kind==='diary'?'📅':'📓'}</span><span class="bname">${esc(b.name)}</span>${b.kind!=='diary'?`<span class="bdel" data-bdel="${b.id}" title="删除这个合集">✕</span>`:''}</div>`).join('');
+  box.querySelectorAll('.bookItem').forEach(el=>{ el.onclick=()=>switchBook(el.dataset.bk); el.ondblclick=()=>renameBook(el.dataset.bk); });
+  box.querySelectorAll('[data-bdel]').forEach(x=>x.onclick=e=>{ e.stopPropagation(); deleteBook(x.dataset.bdel); });
+  const diary=curBook().kind==='diary';
+  $('#diaryTools').hidden=!diary; $('#pageTools').hidden=diary;
+  $('#search').placeholder=diary?'搜索日期或标题…':'搜索页面标题…';
+  $('#oldServerTip').hidden=!oldServer;
+  $('#bookAdd').style.display=oldServer?'none':'';
+}
+async function openBookHome(){
+  if(curBook().kind==='diary'){ loadNote(today()); return; }
+  let list=[]; try{ list=await api('/api/notes'); }catch{ list=[]; }
+  const mine=list.filter(n=>(n.book||'diary')===bookId).sort((a,b)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')));
+  if(mine.length) loadNote(mine[0].id); else createPage();
+}
+async function switchBook(id){
+  if(id===bookId){ refreshBooks(); return; }
+  clearTimeout(saveTimer); if(note&&note.id) await save(); // flush the current note under its own book first
+  bookId=id; localStorage.setItem('nb-book', id);
+  await refreshBooks();
+  await openBookHome();
+  refreshList();
+}
+async function createPage(folder='', parent=''){
+  const id='pg_'+uid();
+  note={id, book:bookId, date:null, folder, parent, title:'未命名页面', elements:[]}; date=id;
+  if(folder) expandedFolders.add(bookId+':'+folder);
+  if(parent) expandedPages.add(parent);
+  $('#title').value=note.title; render();
+  await save(); markSaved('已新建页面（可在顶部改名）');
+  $('#title').focus(); $('#title').select(); refreshList();
+}
+$('#pageNewBtn').onclick=()=>createPage();
+$('#bookAdd').onclick=async()=>{
+  const name=prompt('新合集的名字（例如：学习、工作、随笔）');
+  if(!name||!name.trim()) return;
+  let b=null;
+  try{ if(!useServer) throw 0; b=await api('/api/books',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name.trim()})}); }
+  catch{ if(!lsOK()){ markSaved('新建合集失败：服务端无响应'); return; } b={id:'bk_'+uid(), name:name.trim(), kind:'free'}; books.push(b); localStorage.setItem('notebook:books', JSON.stringify(books)); }
+  await refreshBooks(); switchBook(b.id);
+};
+async function renameBook(id){
+  const b=books.find(x=>x.id===id); if(!b) return;
+  const name=prompt('合集改名', b.name);
+  if(!name||!name.trim()||name.trim()===b.name) return;
+  try{ if(!useServer) throw 0; await api('/api/books/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name.trim()})}); }
+  catch{ if(!lsOK()){ markSaved('改名失败：服务端无响应'); return; } b.name=name.trim(); localStorage.setItem('notebook:books', JSON.stringify(books)); }
+  refreshBooks();
+}
+async function deleteBook(id){
+  const b=books.find(x=>x.id===id); if(!b||b.kind==='diary') return;
+  if(!confirm('确定删除合集「'+b.name+'」吗？里面的页面会一起删除，无法恢复。')) return;
+  try{ if(!useServer) throw 0; await api('/api/books/'+id,{method:'DELETE'}); }
+  catch{ if(!lsOK()){ markSaved('删除合集失败：服务端无响应'); return; } books=books.filter(x=>x.id!==id); localStorage.setItem('notebook:books', JSON.stringify(books));
+    Object.keys(localStorage).filter(k=>k.startsWith('notebook:pg_')).forEach(k=>{ try{ const n=JSON.parse(localStorage.getItem(k)); if(n&&n.book===id) localStorage.removeItem(k); }catch{} }); }
+  if(bookId===id){ bookId='diary'; localStorage.setItem('nb-book','diary'); }
+  await refreshBooks(); await openBookHome(); refreshList();
+}
+// ---- folders inside free books (v0.6.0) -------------------------------------
+let folders=[]; const expandedFolders=new Set();
+async function refreshFolders(){
+  folders=[];
+  if(curBook().kind==='diary') return;
+  if(serverMode==='new'){ try{ folders=(await api('/api/folders?book='+encodeURIComponent(bookId))).map(f=>f.name); }catch{} }
+  else if(lsOK()){ try{ folders=JSON.parse(localStorage.getItem('notebook:folders')||'[]').filter(f=>f.book===bookId).map(f=>f.name); }catch{} }
+}
+$('#folderAddBtn').onclick=async()=>{
+  const name=prompt('新文件夹的名字（例如：2026 会议、部门培训）');
+  if(!name||!name.trim()) return;
+  const nm=name.trim();
+  try{ if(!useServer) throw 0; await api('/api/folders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({book:bookId,name:nm})}); }
+  catch{ if(!lsOK()){ markSaved('建文件夹失败：服务端无响应'); return; }
+    const all=JSON.parse(localStorage.getItem('notebook:folders')||'[]'); if(!all.some(f=>f.book===bookId&&f.name===nm)) all.push({book:bookId,name:nm}); localStorage.setItem('notebook:folders',JSON.stringify(all)); }
+  expandedFolders.add(bookId+':'+nm); refreshList();
+};
+async function renameFolder(oldName){
+  const nm=prompt('文件夹改名', oldName);
+  if(!nm||!nm.trim()||nm.trim()===oldName) return;
+  const newName=nm.trim();
+  try{ if(!useServer) throw 0; await api('/api/folders',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({book:bookId,name:oldName,newName})}); }
+  catch{ if(!lsOK()){ markSaved('文件夹改名失败：服务端无响应'); return; }
+    const all=JSON.parse(localStorage.getItem('notebook:folders')||'[]'); const f=all.find(x=>x.book===bookId&&x.name===oldName); if(f) f.name=newName; localStorage.setItem('notebook:folders',JSON.stringify(all));
+    Object.keys(localStorage).filter(k=>k.startsWith('notebook:pg_')).forEach(k=>{ try{ const n=JSON.parse(localStorage.getItem(k)); if(n&&n.book===bookId&&n.folder===oldName){ n.folder=newName; localStorage.setItem(k,JSON.stringify(n)); } }catch{} }); }
+  if(note&&note.folder===oldName) note.folder=newName;
+  expandedFolders.delete(bookId+':'+oldName); expandedFolders.add(bookId+':'+newName);
+  refreshList();
+}
+async function deleteFolder(name){
+  if(!confirm('确定删除文件夹「'+name+'」吗？里面的页面会移到根目录，不会被删除。')) return;
+  try{ if(!useServer) throw 0; await api('/api/folders?book='+encodeURIComponent(bookId)+'&name='+encodeURIComponent(name),{method:'DELETE'}); }
+  catch{ if(!lsOK()){ markSaved('删文件夹失败：服务端无响应'); return; }
+    const all=JSON.parse(localStorage.getItem('notebook:folders')||'[]').filter(f=>!(f.book===bookId&&f.name===name)); localStorage.setItem('notebook:folders',JSON.stringify(all));
+    Object.keys(localStorage).filter(k=>k.startsWith('notebook:pg_')).forEach(k=>{ try{ const n=JSON.parse(localStorage.getItem(k)); if(n&&n.book===bookId&&n.folder===name){ n.folder=''; localStorage.setItem(k,JSON.stringify(n)); } }catch{} }); }
+  if(note&&note.folder===name) note.folder='';
+  expandedFolders.delete(bookId+':'+name);
+  refreshList();
+}
+// auto-stop heartbeat (v0.7.0): while any UI tab is open the server stays up;
+// closing the last tab beacons /api/bye and the server exits on its own —
+// no more stop-windows.bat. Reloads are safe: the new page's first heartbeat
+// cancels the pending exit.
+function startHeartbeat(){
+  if(!useServer) return;
+  const beat=()=>{ fetch('/api/heartbeat',{method:'POST'}).catch(()=>{}); };
+  beat(); setInterval(beat, 5000);
+  addEventListener('pagehide', ()=>{ if(navigator.sendBeacon) navigator.sendBeacon('/api/bye'); });
+}
+// ---- image lightbox (v0.8.0): double-click an image to view it full screen --
+function openLightbox(src){
+  const lb=$('#lightbox'); $('#lightboxImg').src=src; lb.hidden=false;
+  if(lb.requestFullscreen) lb.requestFullscreen().catch(()=>{});
+}
+function closeLightbox(){
+  $('#lightbox').hidden=true;
+  if(document.fullscreenElement) document.exitFullscreen().catch(()=>{});
+}
+$('#lightbox').onclick=closeLightbox;
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&!$('#lightbox').hidden) closeLightbox(); });
+
+// ---- page tree rows + right-click menu (v0.8.0) ------------------------------
+const expandedPages=new Set(); const pageCache=new Map();
+function pageRowHtml(n, depth, has, open){
+  return `<div class="noteItem pageItem ${n.id===date?'active':''}" data-pg="${n.id}" style="margin-left:${depth*16}px" title="单击打开 · 双击改名 · 右键新建同级/下级笔记"><span class="ptog" data-tog="${n.id}">${has?(open?'▾':'▸'):''}</span><span class="picon">${has?'📁':'📄'}</span><span class="tt">${esc(n.title)||'<i>未命名页面</i>'}</span><small>${(n.updatedAt||'').slice(0,10)}</small><span class="tdel" data-delpg="${n.id}" title="删除这一页">✕</span></div>`;
+}
+function wirePageRows(box){
+  box.querySelectorAll('.pageItem').forEach(el=>{
+    el.onclick=()=>loadNote(el.dataset.pg);
+    el.ondblclick=()=>{ $('#title').focus(); $('#title').select(); };
+    el.oncontextmenu=e=>{ e.preventDefault(); e.stopPropagation(); showPageCtx(e, el.dataset.pg); };
+  });
+  box.querySelectorAll('[data-tog]').forEach(x=>x.onclick=e=>{ e.stopPropagation(); const id=x.dataset.tog; expandedPages.has(id)?expandedPages.delete(id):expandedPages.add(id); refreshList(); });
+  box.querySelectorAll('[data-delpg]').forEach(x=>x.onclick=e=>{ e.stopPropagation(); deleteNote(x.dataset.delpg); });
+}
+let ctxPageId=null;
+function showPageCtx(e, id){
+  ctxPageId=id;
+  const m=$('#pageCtx'); m.hidden=false;
+  m.style.left=Math.min(e.clientX, innerWidth-240)+'px';
+  m.style.top=Math.min(e.clientY, innerHeight-110)+'px';
+}
+function hidePageCtx(){ $('#pageCtx').hidden=true; ctxPageId=null; }
+$('#pcSibling').onclick=()=>{ const p=pageCache.get(ctxPageId); hidePageCtx(); if(p) createPage(p.folder||'', p.parent||''); };
+$('#pcChild').onclick=()=>{ const p=pageCache.get(ctxPageId); hidePageCtx(); if(p) createPage(p.folder||'', p.id); };
+document.addEventListener('mousedown',e=>{ if(!$('#pageCtx').hidden&&!e.target.closest('#pageCtx')) hidePageCtx(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') hidePageCtx(); });
+
+(async()=>{ await detectMode(); startHeartbeat(); await refreshBooks(); await openBookHome(); })();

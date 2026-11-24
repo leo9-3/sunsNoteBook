@@ -38,6 +38,7 @@ async function loadNote(d, opts={}){
   if(!note.elements) note.elements=[];
   if(note.folder==null) note.folder='';
   if(note.parent==null) note.parent='';
+  inkUndo.length=0; inkRedo.length=0; // stroke history is per-note
   if(note.folder) expandedFolders.add(bookId+':'+note.folder); // opening a page expands its folder once; the user can still collapse it afterwards
   if(note.parent){ let p=note.parent, guard=0; while(p&&guard++<20){ expandedPages.add(p); const pn=pageCache.get(p); p=pn?(pn.parent||''):''; } }
   tombstones.delete(d);
@@ -771,6 +772,7 @@ function inkPath(pts){
   return d+` L ${pts[pts.length-1][0]} ${pts[pts.length-1][1]}`;
 }
 let drawMode=false, penColor='#d92d20', penWidth=3.5, erasing=false;
+const inkUndo=[], inkRedo=[]; // stroke history for Ctrl+Z / Ctrl+Y in draw mode (v0.9.1)
 function setDrawMode(on){
   drawMode=on; erasing=false;
   $('#penBar').hidden=!on;
@@ -785,17 +787,18 @@ document.querySelectorAll('#penBar .plw').forEach(b=>b.onclick=()=>{ penWidth=pa
 $('#eraseBtn').onclick=()=>{ erasing=!erasing; $('#eraseBtn').classList.toggle('on',erasing); };
 function finishStroke(pts){
   if(!pts.length) return;
+  inkRedo.length=0; // a fresh stroke invalidates the redo stack
   if(pts.length===1) pts.push({x:pts[0].x+0.1, y:pts[0].y});
   const xs=pts.map(p=>p.x), ys=pts.map(p=>p.y), pad=penWidth+2;
   const x0=Math.min(...xs)-pad, y0=Math.min(...ys)-pad, x1=Math.max(...xs)+pad, y1=Math.max(...ys)+pad;
   const el={id:uid(), type:'ink', x:Math.round(x0), y:Math.round(y0), w:Math.max(4,Math.round(x1-x0)), h:Math.max(4,Math.round(y1-y0)), color:penColor, lw:penWidth,
     pts:pts.map(p=>[Math.round((p.x-x0)*10)/10, Math.round((p.y-y0)*10)/10])};
-  note.elements.push(el); render(); scheduleSave(); select(el.id);
+  note.elements.push(el); inkUndo.push({act:'add', el, idx:note.elements.length-1}); render(); scheduleSave(); select(el.id);
 }
 function eraseAt(clientX, clientY){
   const p=canvasPos(clientX, clientY);
   for(let i=note.elements.length-1;i>=0;i--){ const el=note.elements[i];
-    if(el.type==='ink'&&p.x>=el.x-6&&p.x<=el.x+el.w+6&&p.y>=el.y-6&&p.y<=el.y+el.h+6){ note.elements.splice(i,1); render(); scheduleSave(); return; } }
+    if(el.type==='ink'&&p.x>=el.x-6&&p.x<=el.x+el.w+6&&p.y>=el.y-6&&p.y<=el.y+el.h+6){ note.elements.splice(i,1); inkUndo.push({act:'erase', el, idx:i}); inkRedo.length=0; render(); scheduleSave(); return; } }
 }
 $('#viewport').addEventListener('mousedown',e=>{
   if(!drawMode||e.button!==0) return;
@@ -817,6 +820,38 @@ $('#viewport').addEventListener('mousedown',e=>{
   const up=()=>{ removeEventListener('mousemove',mv); removeEventListener('mouseup',up); svg.remove(); finishStroke(pts); };
   addEventListener('mousemove',mv); addEventListener('mouseup',up);
 }, true);
+function inkUndoOnce(){
+  const h=inkUndo.pop(); if(!h) return;
+  if(h.act==='add'){ const i=note.elements.findIndex(e=>e.id===h.el.id); if(i>=0) note.elements.splice(i,1); }
+  else note.elements.splice(Math.min(h.idx, note.elements.length), 0, h.el);
+  inkRedo.push(h); render(); scheduleSave();
+}
+function inkRedoOnce(){
+  const h=inkRedo.pop(); if(!h) return;
+  if(h.act==='add') note.elements.splice(Math.min(h.idx, note.elements.length), 0, h.el);
+  else { const i=note.elements.findIndex(e=>e.id===h.el.id); if(i>=0) note.elements.splice(i,1); }
+  inkUndo.push(h); render(); scheduleSave();
+}
+$('#undoBtn').onclick=inkUndoOnce;
+$('#redoBtn').onclick=inkRedoOnce;
+document.addEventListener('keydown',e=>{
+  if(!drawMode) return;
+  const ae=document.activeElement;
+  if(ae&&(ae.isContentEditable||/INPUT|TEXTAREA|SELECT/.test(ae.tagName))) return;
+  if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&e.key.toLowerCase()==='z'){ e.preventDefault(); inkUndoOnce(); }
+  else if((e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==='y'||(e.shiftKey&&e.key.toLowerCase()==='z'))){ e.preventDefault(); inkRedoOnce(); }
+});
+// Delete key removes the selected block (v0.9.1, kalo's ask for ink strokes;
+// applies to any selected block when not editing text)
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Delete'&&e.key!=='Backspace') return;
+  const ae=document.activeElement;
+  if(ae&&(ae.isContentEditable||/INPUT|TEXTAREA|SELECT/.test(ae.tagName))) return;
+  const id=window._sel; if(!id) return;
+  const i=note.elements.findIndex(el=>el.id===id); if(i<0) return;
+  e.preventDefault();
+  note.elements.splice(i,1); window._sel=null; render(); scheduleSave();
+});
 
 // ---- collections rail (v0.5.0) ----------------------------------------------
 async function refreshBooks(){

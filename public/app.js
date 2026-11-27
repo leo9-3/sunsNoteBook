@@ -78,9 +78,14 @@ const markSaved=t=>$('#saveState').textContent=t+(useServer?'':'（本地演示�
 // expandedKeys holds the 'YYYY' / 'YYYY-MM' nodes the user currently has open.
 const expandedKeys=new Set();
 function expandFor(d){ if(!d) return; const p=String(d).split('-'); if(p.length<2) return; expandedKeys.add(p[0]); expandedKeys.add(p[0]+'-'+p[1]); }
+async function listAllNotes(){
+  try{ return await api('/api/notes'); }
+  catch{ if(!lsOK()) return [];
+    return Object.keys(localStorage).filter(k=>k.startsWith('notebook:')&&k!=='notebook:books'&&k!=='notebook:folders').map(k=>{ try{ const n=JSON.parse(localStorage.getItem(k)); return {id:n.id||n.date, book:n.book||'diary', date:n.date||null, folder:n.folder||'', parent:n.parent||'', title:n.title, updatedAt:n.updatedAt||null, count:(n.elements||[]).length}; }catch{ return null; } }).filter(Boolean); }
+}
 async function refreshList(){
   let list=[];
-  try{ list=await api('/api/notes'); }catch{ list=lsOK()?Object.keys(localStorage).filter(k=>k.startsWith('notebook:')&&k!=='notebook:books'&&k!=='notebook:folders').map(k=>{ try{ const n=JSON.parse(localStorage.getItem(k)); return {id:n.id||n.date, book:n.book||'diary', date:n.date||null, folder:n.folder||'', parent:n.parent||'', title:n.title, updatedAt:n.updatedAt||null, count:(n.elements||[]).length}; }catch{ return null; } }).filter(Boolean):[]; }
+  list=await listAllNotes();
   const q=($('#search').value||'').toLowerCase();
   const box=$('#noteList');
   const mine=list.filter(n=>(n.book||'diary')===bookId);
@@ -714,6 +719,39 @@ $('#viewport').addEventListener('mousedown',e=>{
     if(!moved) typeAt(canvasPos(ev.clientX,ev.clientY)); };
   addEventListener('mousemove',mv); addEventListener('mouseup',up);
 });
+(function(){
+  let tTarget=null, tId=null, downSent=false;
+  function synth(type, t, target){
+    const e=new MouseEvent(type,{bubbles:true,cancelable:true,clientX:t.clientX,clientY:t.clientY,button:0,buttons:type==='mouseup'?0:1});
+    e._fromTouch=true; target.dispatchEvent(e);
+  }
+  // swallow the browser's own compatibility mousedown for a touch we already
+  // translated, so handlers never see the same press twice
+  document.addEventListener('mousedown',e=>{ if(tTarget&&downSent&&!e._fromTouch){ e.stopPropagation(); e.preventDefault(); } },true);
+  document.addEventListener('touchstart',e=>{
+    if(e.touches.length!==1){ tTarget=null; return; }
+    const t=e.touches[0], el=document.elementFromPoint(t.clientX,t.clientY);
+    if(!el||!el.closest('#viewport')){ tTarget=null; return; }
+    if(!drawMode&&el.closest('.body')){ tTarget=null; return; } // text editing keeps native touch
+    tTarget=el; tId=t.identifier; downSent=true;
+    synth('mousedown', t, el);
+  },{passive:true});
+  document.addEventListener('touchmove',e=>{
+    if(!tTarget) return;
+    for(const t of e.changedTouches){ if(t.identifier!==tId) continue;
+      synth('mousemove', t, tTarget);
+      if(e.cancelable) e.preventDefault();
+    }
+  },{passive:false});
+  const end=e=>{
+    if(!tTarget) return;
+    for(const t of e.changedTouches){ if(t.identifier!==tId) continue;
+      synth('mouseup', t, tTarget);
+      setTimeout(()=>{ tTarget=null; tId=null; downSent=false; }, 50);
+    }
+  };
+  document.addEventListener('touchend',end); document.addEventListener('touchcancel',end);
+})();
 // mouse wheel scrolls the page up/down (v0.4.0, OneNote behaviour); Ctrl+wheel zooms at the cursor
 function clampPan(){
   const vw=$('#viewport').clientWidth, vh=$('#viewport').clientHeight;
@@ -735,7 +773,9 @@ $('#todayBtn').onclick=()=>loadNote(today(),{create:true});
 $('#datePick').onchange=e=>{ if(e.target.value) loadNote(e.target.value,{create:true}); };
 $('#search').oninput=refreshList;
 $('#title').oninput=scheduleSave;
-$('#exportBtn').onclick=()=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(note,null,2)],{type:'application/json'})); a.download=date+'-纪要.json'; a.click(); };
+$('#exportBtn').onclick=()=>{ const data=JSON.stringify(note,null,2), name=date+'-纪要.json';
+  if(window.AndroidBridge&&AndroidBridge.saveText){ AndroidBridge.saveText(name, data); markSaved('已导出到手机的下载目录'); return; }
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([data],{type:'application/json'})); a.download=name; a.click(); };
 async function deleteNote(d){
   clearTimeout(saveTimer); // a pending autosave must not resurrect the note
   const t=(d===date&&note.title)?'「'+note.title+'」':'';
@@ -745,7 +785,7 @@ async function deleteNote(d){
   try{ if(!useServer) throw 0; await api('/api/notes/'+d,{method:'DELETE'}); }
   catch{ if(!useServer) localStorage.removeItem('notebook:'+d); else { tombstones.delete(d); markSaved('删除失败：服务端无响应'); return; } }
   if(d===date){
-    let list=[]; try{ list=await api('/api/notes'); }catch{ list=[]; }
+    const list=await listAllNotes();
     const mine=list.filter(x=>(x.book||'diary')===bookId);
     if(curBook().kind==='diary'){
       const next=mine.find(x=>x.date>d)||[...mine].reverse().find(x=>x.date<d);
@@ -871,7 +911,7 @@ async function refreshBooks(){
 }
 async function openBookHome(){
   if(curBook().kind==='diary'){ loadNote(today()); return; }
-  let list=[]; try{ list=await api('/api/notes'); }catch{ list=[]; }
+  const list=await listAllNotes();
   const mine=list.filter(n=>(n.book||'diary')===bookId).sort((a,b)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')));
   if(mine.length) loadNote(mine[0].id); else createPage();
 }

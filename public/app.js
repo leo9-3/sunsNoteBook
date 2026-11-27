@@ -29,7 +29,7 @@ function esc(s){ return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&
 const uid=()=>Math.random().toString(36).slice(2,10);
 
 async function api(path,opts){ const r=await fetch(path,opts); if(!r.ok) throw new Error(r.status); return r.json(); }
-async function loadNote(d, opts={}){
+async function loadNote(d, opts={}){ document.body.classList.remove('nav-open');
   const wasOpen=(date===d);
   date=d; if(curBook().kind==='diary') expandFor(d);
   let fresh=false;
@@ -932,6 +932,7 @@ async function createPage(folder='', parent=''){
   await save(); markSaved('已新建页面（可在顶部改名）');
   $('#title').focus(); $('#title').select(); refreshList();
 }
+$('#navBtn').onclick=()=>document.body.classList.toggle('nav-open');
 $('#pageNewBtn').onclick=()=>createPage();
 $('#bookAdd').onclick=async()=>{
   const name=prompt('新合集的名字（例如：学习、工作、随笔）');

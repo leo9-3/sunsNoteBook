@@ -4,8 +4,8 @@
 
 | 包 | 适用 | 内容 |
 |---|---|---|
-| `sunsNoteBook-v0.10.1-win-x64-offline.zip` | Windows 电脑/服务器（x64） | 程序本体 + 内置 Node.js 运行时（官方版 v24.22.1，SHA256 已校验） |
-| `sunsNoteBook-v0.10.1-linux-x64-offline.tar.gz` | Linux 服务器（x64） | 程序本体 + 内置 Node.js 运行时 |
+| `sunsNoteBook-v0.11.0-win-x64-offline.zip` | Windows 电脑/服务器（x64） | 程序本体 + 内置 Node.js 运行时（官方版 v24.22.1，SHA256 已校验） |
+| `sunsNoteBook-v0.11.0-linux-x64-offline.tar.gz` | Linux 服务器（x64） | 程序本体 + 内置 Node.js 运行时 |
 
 两个包都**免安装、不联网、不需要管理员权限**（开机自启/服务化除外）。
 
@@ -21,7 +21,7 @@
 ## Linux
 
 ```bash
-tar -xzf sunsNoteBook-v0.10.1-linux-x64-offline.tar.gz
+tar -xzf sunsNoteBook-v0.11.0-linux-x64-offline.tar.gz
 cd sunsNoteBook
 sh start-linux.sh            # 前台运行，先试用
 # 或装成系统服务（开机自启、后台运行）：

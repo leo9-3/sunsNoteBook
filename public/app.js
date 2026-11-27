@@ -65,9 +65,9 @@ async function save(){
   if(!(note.title||'').trim()){ note.title=curBook().kind==='diary'?defaultTitle(date):'未命名页面'; if(document.activeElement!==$('#title')) $('#title').value=note.title; }
   note.elements.forEach(el=>{ if(el.runs&&Object.keys(el.runs).length) el.colors={}; }); // runs supersede legacy colours
   // never persist empty text blocks (e.g. a stray click that was never typed into)
-  note.elements=note.elements.filter(el=>el.type==='image'||el.type==='table'||el.type==='ink'||(el.text||'').trim()!==''||el.id===window._sel);
+  note.elements=note.elements.filter(el=>el.type==='image'||el.type==='video'||el.type==='table'||el.type==='ink'||(el.text||'').trim()!==''||el.id===window._sel);
   try{ if(!useServer) throw 0; saveInFlight=api('/api/notes/'+date,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(note)}); await saveInFlight; }
-  catch{ if(!useServer) localStorage.setItem('notebook:'+date,JSON.stringify(note)); else { markSaved('保存失败：服务端无响应，请确认程序还在运行'); return; } }
+  catch{ if(!useServer){ try{ localStorage.setItem('notebook:'+date,JSON.stringify(note)); }catch{ markSaved('保存失败：手机本地存储空间不足（视频/图片太多了？）'); return; } } else { markSaved('保存失败：服务端无响应，请确认程序还在运行'); return; } }
   saveInFlight=null;
   markSaved('已保存 '+new Date().toLocaleTimeString()); refreshList();
 }
@@ -314,13 +314,18 @@ function nodeFor(el){
   div.style.left=el.x+'px'; div.style.top=el.y+'px';
   if(isText){ if(el.mw){ div.style.width=el.mw+'px'; } else { div.style.width='max-content'; div.style.maxWidth='900px'; } }
   else{ div.style.width=el.w+'px'; if(el.h) div.style.height=el.h+'px'; }
-  const label=el.type==='image'?'图片':el.type==='todo'?'待办':el.type==='sticky'?'便签':el.type==='table'?'表格':el.type==='ink'?'绘图':'文字';
+  const label=el.type==='image'?'图片':el.type==='todo'?'待办':el.type==='sticky'?'便签':el.type==='table'?'表格':el.type==='ink'?'绘图':el.type==='video'?'视频':'文字';
   div.innerHTML=`<div class="grip"><span>⠿ ${label}</span>`+
     (el.type==='table'?`<span class="tops"><button data-op="addr">＋行</button><button data-op="delr">－行</button><button data-op="addc">＋列</button><button data-op="delc">－列</button></span>`:'')+
     `<button class="del" title="删除">✕</button></div>`+
-    (el.type==='image'?`<img draggable="false" alt=""/>`:el.type==='table'?`<div class="tblWrap"><table class="tbl"></table></div>`:el.type==='ink'?`<svg class="inkSvg" viewBox="0 0 ${el.w} ${el.h}" preserveAspectRatio="none"><path d="${inkPath(el.pts||[])}" fill="none" stroke="${el.color||'#d92d20'}" stroke-width="${el.lw||3}" stroke-linecap="round" stroke-linejoin="round"/></svg>`:`<div class="body" contenteditable="true" data-placeholder="在这里输入…"></div>`)+`<div class="resize" title="拖动调整大小；文字块双击此角恢复自动宽度">◢</div>`;
+    (el.type==='image'?`<img draggable="false" alt=""/>`:el.type==='table'?`<div class="tblWrap"><table class="tbl"></table></div>`:el.type==='ink'?`<svg class="inkSvg" viewBox="0 0 ${el.w} ${el.h}" preserveAspectRatio="none"><path d="${inkPath(el.pts||[])}" fill="none" stroke="${el.color||'#d92d20'}" stroke-width="${el.lw||3}" stroke-linecap="round" stroke-linejoin="round"/></svg>`:el.type==='video'?`<video controls preload="metadata" playsinline></video>`:`<div class="body" contenteditable="true" data-placeholder="在这里输入…"></div>`)+`<div class="resize" title="拖动调整大小；文字块双击此角恢复自动宽度">◢</div>`;
   if(el.type==='image'){ div.querySelector('img').src=el.src; }
   else if(el.type==='ink'){ div.querySelector('.inkSvg').addEventListener('mousedown',e=>startMove(e,el,div)); }
+  else if(el.type==='video'){ const v=div.querySelector('video'); v.src=el.src;
+    // first load only: fit the block height to the video's real aspect ratio
+    v.onloadedmetadata=()=>{ if(el.h===270&&v.videoWidth>0){ el.h=Math.max(120,Math.round(el.w*v.videoHeight/v.videoWidth))+22; div.style.height=el.h+'px'; } };
+    v.ondblclick=e=>{ e.stopPropagation(); if(v.requestFullscreen) v.requestFullscreen().catch(()=>{}); };
+  }
   else if(el.type==='table'){
     buildTable(div, el);
     div.querySelectorAll('[data-op]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); tableOp(el, div, b.dataset.op); });
@@ -365,7 +370,7 @@ function nodeFor(el){
   // the corner above keeps doing both axes at once. Text blocks resize by
   // width only (their height follows the content), so they get left/right
   // edges; image blocks get all four.
-  if(isText||el.type==='image'){
+  if(isText||el.type==='image'||el.type==='video'){
     (isText?['e','w']:['e','w','n','s']).forEach(m=>{
       const ed=document.createElement('div'); ed.className='edge '+m; ed.title='拖动边框调整大小';
       ed.onmousedown=e=>{ e.preventDefault(); e.stopPropagation(); select(el.id);
@@ -394,7 +399,7 @@ function nodeFor(el){
 }
 function select(id){ window._sel=id; document.querySelectorAll('.el').forEach(n=>n.classList.toggle('selected',n.dataset.id===id)); }
 function canvasPos(clientX,clientY){ const r=$('#viewport').getBoundingClientRect(); return {x:(clientX-r.left-pan.x)/zoom, y:(clientY-r.top-pan.y)/zoom}; }
-function addEl(type,x,y,extra={}){ const el={id:uid(),type,x:Math.round(x),y:Math.round(y),w:type==='image'?320:type==='table'?440:280,h:type==='image'?220:null,text:type==='todo'?'☐ 待办事项\n☐ 跟进人 / 截止日期':type==='sticky'?'便签':type==='heading'?'标题':'',...extra}; if(type==='table'&&!el.rows) el.rows=[['','',''],['','',''],['','','']]; note.elements.push(el); render(); scheduleSave(); return el; }
+function addEl(type,x,y,extra={}){ const el={id:uid(),type,x:Math.round(x),y:Math.round(y),w:type==='image'?320:type==='video'?480:type==='table'?440:280,h:type==='image'?220:type==='video'?270:null,text:type==='todo'?'☐ 待办事项\n☐ 跟进人 / 截止日期':type==='sticky'?'便签':type==='heading'?'标题':'',...extra}; if(type==='table'&&!el.rows) el.rows=[['','',''],['','',''],['','','']]; note.elements.push(el); render(); scheduleSave(); return el; }
 function typeAt(p){ const el=addEl('text',p.x,p.y); select(el.id); focusBody(el); return el; }
 
 document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{ const el=addEl(b.dataset.add, 80+Math.random()*120 - pan.x/zoom, 80+Math.random()*80 - pan.y/zoom); select(el.id); if(el.type==='table'){ const td=document.querySelector(`[data-id="${el.id}"] td`); if(td) td.focus(); } else if(el.type!=='image') focusBody(el); });
@@ -453,6 +458,13 @@ function placeImage(src, allowSelected){
   addEl('image', Math.round(p.x), Math.round(p.y), {src});
 }
 $('#imgInput').onchange=e=>{ [...e.target.files].forEach(f=>{ const r=new FileReader(); r.onload=()=>placeImage(r.result, true); r.readAsDataURL(f); }); e.target.value=''; };
+const MAX_VIDEO_MB=12;
+function readVideoFile(f, place){
+  if(f.size>MAX_VIDEO_MB*1024*1024){ markSaved('视频太大：'+(f.size/1048576).toFixed(1)+'MB，超过 '+MAX_VIDEO_MB+'MB 上限，请选短一点的视频'); return; }
+  const r=new FileReader(); r.onload=()=>place(r.result); r.readAsDataURL(f);
+}
+function placeVideo(src){ const p=pendingPoint||viewCenter(); pendingPoint=null; addEl('video', Math.round(p.x), Math.round(p.y), {src}); }
+$('#vidInput').onchange=e=>{ [...e.target.files].forEach(f=>readVideoFile(f, placeVideo)); e.target.value=''; };
 addEventListener('paste',e=>{ const item=[...(e.clipboardData||[]).items||[]].find(i=>i.type.startsWith('image/')); if(item){ const r=new FileReader(); r.onload=()=>placeImage(r.result, false); r.readAsDataURL(item.getAsFile()); }});
 // Ctrl+S / Cmd+S saves the note itself — never the browser's "save webpage" dialog
 addEventListener('keydown',e=>{
@@ -648,11 +660,12 @@ document.addEventListener('dragstart',e=>{ if(e.target.closest && e.target.close
 $('#viewport').addEventListener('dragover',e=>e.preventDefault());
 $('#viewport').addEventListener('drop',e=>{
   e.preventDefault();
-  const files=[...(e.dataTransfer.files||[])].filter(f=>f.type.startsWith('image/'));
+  const files=[...(e.dataTransfer.files||[])].filter(f=>f.type.startsWith('image/')||f.type.startsWith('video/'));
   if(!files.length) return; // internal drags carry no Files — ignore them so nothing duplicates
   const p=canvasPos(e.clientX,e.clientY);
   const dropBody=e.target.closest?e.target.closest('.el .body'):null;
-  files.forEach((f,i)=>{ const r=new FileReader(); r.onload=()=>{
+  files.forEach((f,i)=>{ if(f.type.startsWith('video/')){ readVideoFile(f, src=>addEl('video', p.x+i*24, p.y+i*24, {src})); return; }
+    const r=new FileReader(); r.onload=()=>{
     if(dropBody){ // dropped onto a text block: embed at the nearest line instead of floating
       const holder=dropBody.closest('.el'); const el=holder&&note.elements.find(x=>x.id===holder.dataset.id);
       if(el&&(el.type==='text'||el.type==='heading')){

@@ -123,6 +123,7 @@ aside #search{width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px}
 .el .body:empty::before{content:attr(data-placeholder);color:#9ca3af;pointer-events:none}
 .el.heading .body{font-size:22px;font-weight:700}.el.sticky{background:#fef9c3}.el.todo .body{font-size:14px}
 .el img{display:block;width:100%;height:calc(100% - 22px);object-fit:contain;border-radius:0 0 10px 10px;-webkit-user-drag:none;user-select:none;cursor:move}
+.el video{display:block;width:100%;height:calc(100% - 22px);object-fit:contain;background:#000;border-radius:0 0 10px 10px}
 .el .el .body .imgLn{line-height:0}
 .imgWrap{position:relative;display:inline-block;line-height:0}
 .imgWrap img{display:block;max-width:100%;border-radius:6px}
